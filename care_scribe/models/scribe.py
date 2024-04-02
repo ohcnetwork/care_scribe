@@ -54,7 +54,7 @@ class Scribe(BaseModel):
         COMPLETED = "COMPLETED"
         FAILED = "FAILED"
 
-    requested_by = models.ForeignKey(User, on_delete=models.PROTECT)
+    requested_by = models.ForeignKey(User, null=True, on_delete=models.SET_NULL)
     form_data = models.JSONField(
         validators=[validate_json_schema], null=True, blank=True
     )
@@ -72,5 +72,4 @@ class Scribe(BaseModel):
             associating_id=self.external_id,
             file_type=ScribeFile.FileType.SCRIBE,
             upload_completed=True,
-            is_archived=False,
         ).values_list("external_id", flat=True)

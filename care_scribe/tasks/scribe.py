@@ -11,7 +11,9 @@ from care_scribe.models.scribe_file import ScribeFile
 
 
 logger = logging.getLogger(__name__)
-client = OpenAI(api_key="sk-test")  # TODO: To be moved to config
+client = OpenAI(
+    api_key="sk-xx"
+)  # TODO: To be moved to config
 
 prompt_1 = """
 Given a raw transcript, your task is to extract relevant information and structure it according to a predefined schema.
@@ -122,7 +124,7 @@ def process_ai_form_fill(external_id):
                     },
                 ],
             )
-            ai_response_json = ai_response.choices[0].text
+            ai_response_json = ai_response.choices[0].message.content
             logger.info(f"AI response: {ai_response_json}")
 
             # Save AI response to the form

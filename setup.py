@@ -11,10 +11,13 @@ with open("HISTORY.rst") as history_file:
     history = history_file.read()
 
 requirements = [
-    "jsonschema",
+    "requests",
+    "celery",
     "django",
-    "django-rest-framework",
+    "djangorestframework",
+    "django-filter",
     "openai",
+    "jsonschema",
 ]
 
 test_requirements = []

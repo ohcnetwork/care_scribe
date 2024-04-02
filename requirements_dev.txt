@@ -10,3 +10,14 @@ twine==1.14.0
 
 
 black==21.7b0
+
+
+# dependencies for the project
+
+requests
+celery
+django
+djangorestframework
+django-filter
+openai
+jsonschema

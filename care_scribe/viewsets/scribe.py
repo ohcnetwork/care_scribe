@@ -7,9 +7,9 @@ from rest_framework.mixins import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
-from care.facility.api.serializers.ai import AIFormFillSerializer
-from care.facility.models.ai import AIFormFill
-from care.facility.tasks.ai_scribe import process_ai_form_fill
+from care_scribe.models.scribe import Scribe
+from care_scribe.serializers.scribe import ScribeSerializer
+from care_scribe.tasks.scribe import process_ai_form_fill
 
 
 class ScribeViewset(
@@ -19,8 +19,8 @@ class ScribeViewset(
     UpdateModelMixin,
     GenericViewSet,
 ):
-    queryset = AIFormFill.objects.all().order_by("-created_date")
-    serializer_class = AIFormFillSerializer
+    queryset = Scribe.objects.all().order_by("-created_date")
+    serializer_class = ScribeSerializer
     lookup_field = "external_id"
     permission_classes = [IsAuthenticated]
 
@@ -36,5 +36,5 @@ class ScribeViewset(
 
     def perform_update(self, serializer):
         instance = serializer.save()
-        if instance.status == AIFormFill.Status.READY:
+        if instance.status == Scribe.Status.READY:
             process_ai_form_fill.delay(instance.external_id)

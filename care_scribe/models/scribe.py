@@ -1,8 +1,9 @@
-import enum
 import jsonschema
 from django.db import models
-
+from django.contrib.auth import get_user_model
 from care.utils.models.base import BaseModel
+
+User = get_user_model()
 
 form_data_schema = {
     "type": "array",
@@ -40,7 +41,7 @@ form_data_schema = {
 def validate_json_schema(value):
     try:
         jsonschema.validate(value, form_data_schema)
-    except jsonschema.exceptions.ValidationError as e:
+    except jsonschema.ValidationError as e:
         raise jsonschema.ValidationError(f"Invalid JSON data: {e}")
 
 
@@ -53,10 +54,7 @@ class Scribe(BaseModel):
         COMPLETED = "COMPLETED"
         FAILED = "FAILED"
 
-    requested_by = models.ForeignKey(
-        "users.User",
-        on_delete=models.PROTECT,
-    )
+    requested_by = models.ForeignKey(User, on_delete=models.PROTECT)
     form_data = models.JSONField(
         validators=[validate_json_schema], null=True, blank=True
     )
@@ -68,12 +66,11 @@ class Scribe(BaseModel):
 
     @property
     def audio_file_ids(self):
-        from care.facility.models.file_upload import FileUpload
+        from care_scribe.models.scribe_file import ScribeFile
 
-        return FileUpload.objects.filter(
+        return ScribeFile.objects.filter(
             associating_id=self.external_id,
-            file_type=FileUpload.FileType.AI.value,
+            file_type=ScribeFile.FileType.SCRIBE,
             upload_completed=True,
             is_archived=False,
         ).values_list("external_id", flat=True)
-    

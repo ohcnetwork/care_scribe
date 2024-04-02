@@ -4,14 +4,14 @@ import logging
 
 import requests
 from celery import shared_task
-from django.conf import settings
 from openai import OpenAI
 
-from care.facility.models.ai import AIFormFill
-from care.facility.models.file_upload import FileUpload
+from care_scribe.models.scribe import Scribe
+from care_scribe.models.scribe_file import ScribeFile
+
 
 logger = logging.getLogger(__name__)
-client = OpenAI(api_key="sk-test") # TODO: To be moved to config
+client = OpenAI(api_key="sk-test")  # TODO: To be moved to config
 
 prompt_1 = """
 Given a raw transcript, your task is to extract relevant information and structure it according to a predefined schema.
@@ -34,8 +34,8 @@ Schema:
 
 @shared_task
 def process_ai_form_fill(external_id):
-    ai_form_fills = AIFormFill.objects.filter(
-        external_id=external_id, status=AIFormFill.Status.READY
+    ai_form_fills = Scribe.objects.filter(
+        external_id=external_id, status=Scribe.Status.READY
     )
 
     for form in ai_form_fills:
@@ -51,14 +51,14 @@ def process_ai_form_fill(external_id):
 
         # Get the audio file URLs
         for audio_file_id in form.audio_file_ids:
-            audio_file = FileUpload.objects.get(external_id=audio_file_id)
+            audio_file = ScribeFile.objects.get(external_id=audio_file_id)
             audio_file_urls.append(audio_file.read_signed_url())
             logger.info(f"Audio file URL: {audio_file_urls[-1]}")
 
         try:
             # Update status to GENERATING_TRANSCRIPT
             logger.info(f"Generating transcript for AI form fill {form.external_id}")
-            form.status = AIFormFill.Status.GENERATING_TRANSCRIPT
+            form.status = Scribe.Status.GENERATING_TRANSCRIPT
             form.save()
 
             if not form.transcript:
@@ -87,7 +87,7 @@ def process_ai_form_fill(external_id):
 
             # Update status to GENERATING_AI_RESPONSE
             logger.info(f"Generating AI response for AI form fill {form.external_id}")
-            form.status = AIFormFill.Status.GENERATING_AI_RESPONSE
+            form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
 
             # Process the transcript with Ayushma
@@ -96,46 +96,42 @@ def process_ai_form_fill(external_id):
                 response_format={"type": "json_object"},
                 max_tokens=4096,
                 temperature=0,
-                messages= [
-                        {
-                            "role": "system",
-                            "content": prompt_1,
-                        },
-                        {
-                            "role": "system",
-                            "content": prompt_2.replace(
-                                "{form_schema}", json.dumps(form.form_data, indent=2)
-                            ),
-                        },
-                        {
-                            "role": "system",
-                            "content": "Below is a sample output for reference. Your task is to produce a similar JSON output based on the provided transcript, following the schema and instructions above.\n"
-                            + json.dumps(
-                                {
-                                    field["id"]: field["example"]
-                                    for field in form.form_data
-                                },
-                                indent=2,
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            "content": "Please process the following transcript and output the structured data in JSON format as per the schema provided above:\nTranscript:\n"
-                            + transcript,
-                        },
-                    ],
-                },
+                messages=[
+                    {
+                        "role": "system",
+                        "content": prompt_1,
+                    },
+                    {
+                        "role": "system",
+                        "content": prompt_2.replace(
+                            "{form_schema}", json.dumps(form.form_data, indent=2)
+                        ),
+                    },
+                    {
+                        "role": "system",
+                        "content": "Below is a sample output for reference. Your task is to produce a similar JSON output based on the provided transcript, following the schema and instructions above.\n"
+                        + json.dumps(
+                            {field["id"]: field["example"] for field in form.form_data},
+                            indent=2,
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": "Please process the following transcript and output the structured data in JSON format as per the schema provided above:\nTranscript:\n"
+                        + transcript,
+                    },
+                ],
             )
             ai_response_json = ai_response.choices[0].text
             logger.info(f"AI response: {ai_response_json}")
 
             # Save AI response to the form
             form.ai_response = ai_response_json
-            form.status = AIFormFill.Status.COMPLETED
+            form.status = Scribe.Status.COMPLETED
             form.save()
 
         except Exception as e:
             # Log the error or handle it as needed
-            form.status = AIFormFill.Status.FAILED
+            form.status = Scribe.Status.FAILED
             form.save()
             logger.error(f"AI form fill processing failed: {e}")

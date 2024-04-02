@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from care_scribe.models.scribe import Scribe
+
 class ScribeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Scribe

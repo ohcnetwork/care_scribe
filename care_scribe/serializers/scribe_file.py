@@ -2,10 +2,9 @@ from care_scribe.models.scribe import Scribe
 from rest_framework import serializers
 from care_scribe.models.scribe_file import ScribeFile
 from rest_framework import serializers
-from config.serializers import ChoiceField
 from rest_framework.exceptions import ValidationError
 from django.conf import settings
-from care.users.api.serializers.user import UserBaseMinimumSerializer
+from care.facility.models.file_upload import BaseFileUpload
 
 def check_permissions(file_type, associating_id, user):
     if file_type == ScribeFile.FileType.SCRIBE:
@@ -16,8 +15,8 @@ def check_permissions(file_type, associating_id, user):
 
 class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="external_id", read_only=True)
-    file_type = ChoiceField(choices=ScribeFile.FileTypeChoices)
-    file_category = ChoiceField(choices=ScribeFile.FileCategoryChoices, required=False)
+    file_type = serializers.ChoiceField(choices=ScribeFile.FileType.choices)
+    file_category = serializers.ChoiceField(choices=BaseFileUpload.FileCategory, required=False)
 
     signed_url = serializers.CharField(read_only=True)
     associating_id = serializers.CharField(write_only=True)

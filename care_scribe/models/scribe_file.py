@@ -12,9 +12,7 @@ class ScribeFile(BaseFileUpload):
     file_type = models.IntegerField(choices=FileType.choices, default=FileType.SCRIBE)
     uploaded_by = models.ForeignKey(
         User,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
     )
-    FileTypeChoices = [(x.value, x.name) for x in FileType]
-    FileCategoryChoices = [(x.value, x.name) for x in BaseFileUpload.FileCategory]

@@ -8,12 +8,18 @@ from openai import OpenAI
 
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
+from care_scribe.settings import plugin_settings
 
 
 logger = logging.getLogger(__name__)
-client = OpenAI(
-    api_key="sk-xx"
-)  # TODO: To be moved to config
+
+OpenAIClient = None
+
+def get_openai_client():
+    global OpenAIClient
+    if OpenAIClient is None:
+        OpenAIClient = OpenAI(api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY)
+    return OpenAIClient
 
 prompt_1 = """
 Given a raw transcript, your task is to extract relevant information and structure it according to a predefined schema.
@@ -76,7 +82,7 @@ def process_ai_form_fill(external_id):
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file.mp3"
 
-                    transcription = client.audio.transcriptions.create(
+                    transcription = get_openai_client().audio.transcriptions.create(
                         model="whisper-1", file=buffer
                     )
                     transcript += transcription.text
@@ -93,7 +99,7 @@ def process_ai_form_fill(external_id):
             form.save()
 
             # Process the transcript with Ayushma
-            ai_response = client.chat.completions.create(
+            ai_response = get_openai_client().chat.completions.create(
                 model="gpt-4-turbo-preview",
                 response_format={"type": "json_object"},
                 max_tokens=4096,

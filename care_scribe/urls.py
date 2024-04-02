@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
-
-from django.urls import path
 from django.shortcuts import HttpResponse
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from care_scribe.viewsets.scribe import ScribeViewset

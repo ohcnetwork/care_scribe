@@ -10,16 +10,19 @@ from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
 
-
 logger = logging.getLogger(__name__)
 
 OpenAIClient = None
 
+
 def get_openai_client():
     global OpenAIClient
     if OpenAIClient is None:
-        OpenAIClient = OpenAI(api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY)
+        OpenAIClient = OpenAI(
+            api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY
+        )
     return OpenAIClient
+
 
 prompt_1 = """
 Given a raw transcript, your task is to extract relevant information and structure it according to a predefined schema.

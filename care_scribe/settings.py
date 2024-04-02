@@ -6,7 +6,6 @@ from rest_framework.settings import APISettings
 
 from care_scribe.apps import PLUGIN_NAME
 
-
 USER_SETTINGS = getattr(settings, "PLUGIN_CONFIGS", {}).get(PLUGIN_NAME, {})
 
 DEFAULTS = {
@@ -18,7 +17,7 @@ IMPORT_STRINGS = []
 
 class PluginSettings(APISettings):  # pragma: no cover
     def __check_user_settings(self, user_settings: dict[str, Any]) -> dict[str, Any]:
-        
+
         if (
             "TRANSCRIBE_SERVICE_PROVIDER_API_KEY" not in user_settings
             or not user_settings.get("TRANSCRIBE_SERVICE_PROVIDER_API_KEY")

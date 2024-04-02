@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 
+
 def check_permissions(file_type, associating_id, user):
     if file_type == ScribeFile.FileType.SCRIBE:
         scribe_obj = Scribe.objects.filter(external_id=associating_id).first()
@@ -12,10 +13,13 @@ def check_permissions(file_type, associating_id, user):
             raise ValidationError({"detail": "Permission Denied"})
         return associating_id
 
+
 class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="external_id", read_only=True)
     file_type = serializers.ChoiceField(choices=ScribeFile.FileType.choices)
-    file_category = serializers.ChoiceField(choices=ScribeFile.FileCategory.choices, required=False)
+    file_category = serializers.ChoiceField(
+        choices=ScribeFile.FileCategory.choices, required=False
+    )
 
     signed_url = serializers.CharField(read_only=True)
     associating_id = serializers.CharField(write_only=True)
@@ -55,6 +59,7 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
         file_upload: ScribeFile = super().create(validated_data)
         file_upload.signed_url = file_upload.signed_url(mime_type=mime_type)
         return file_upload
+
 
 class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="external_id", read_only=True)

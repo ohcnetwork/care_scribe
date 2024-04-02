@@ -10,7 +10,12 @@ with open('README.rst') as readme_file:
 with open('HISTORY.rst') as history_file:
     history = history_file.read()
 
-requirements = [ ]
+requirements = [
+    "jsonschema",
+    "django",
+    "django-rest-framework",
+    "openai",
+ ]
 
 test_requirements = [ ]
 

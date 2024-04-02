@@ -1,6 +1,6 @@
 from django.db import models
-from care.facility.models.file_upload import BaseFileUpload
 from django.contrib.auth import get_user_model
+from care.facility.models.file_upload import BaseFileUpload
 
 User = get_user_model()
 

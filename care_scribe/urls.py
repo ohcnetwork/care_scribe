@@ -2,10 +2,10 @@
 
 from django.urls import path
 from django.shortcuts import HttpResponse
-from care_scribe.viewsets.scribe_file import FileUploadViewSet
 from rest_framework.routers import DefaultRouter
 
 from care_scribe.viewsets.scribe import ScribeViewset
+from care_scribe.viewsets.scribe_file import FileUploadViewSet
 
 
 def healthy(request):

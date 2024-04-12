@@ -15,6 +15,7 @@ requirements = [
     "celery",
     "django",
     "djangorestframework",
+    "django-environ",
     "django-filter",
     "openai",
     "jsonschema",

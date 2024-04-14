@@ -24,8 +24,8 @@ requirements = [
 test_requirements = []
 
 setup(
-    author="Vignesh Hari",
-    author_email="hey@vigneshhari.dev",
+    author="Open Healthcare Network",
+    author_email="info@ohc.network",
     python_requires=">=3.6",
     classifiers=[
         "Development Status :: 2 - Pre-Alpha",
@@ -47,7 +47,7 @@ setup(
     packages=find_packages(include=["care_scribe", "care_scribe.*"]),
     test_suite="tests",
     tests_require=test_requirements,
-    url="https://github.com/vigneshhari/care_scribe",
+    url="https://github.com/coronasafe/care_scribe",
     version="0.1.0",
     zip_safe=False,
 )

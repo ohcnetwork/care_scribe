@@ -4,25 +4,16 @@ from rest_framework.mixins import CreateModelMixin, RetrieveModelMixin, UpdateMo
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
-from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.serializers.scribe_file import (
     ScribeFileUploadCreateSerializer,
     ScribeFileUploadUpdateSerializer,
+    check_permissions,
 )
 
 
 class FileUploadFilter(filters.FilterSet):
     file_category = filters.CharFilter(field_name="file_category")
-
-
-def check_permissions(file_type, associating_id, user):
-    if file_type == ScribeFile.FileType.SCRIBE:
-        scribe_obj = Scribe.objects.filter(external_id=associating_id).first()
-        if scribe_obj and scribe_obj.requested_by != user:
-            raise ValidationError({"detail": "Permission Denied"})
-        return associating_id
-
 
 class FileUploadViewSet(
     CreateModelMixin,

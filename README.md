@@ -41,8 +41,6 @@ The following configurations variables are available for Care Scribe:
 
 - `TRANSCRIBE_SERVICE_PROVIDER_API_KEY`: API key for the transcribe service provider (OpenAI whisper or Google Speech to Text)
 
-<!-- Environment variables take precedence over the values provided in the `configs` dictionary. -->
-
 The plugin will try to find the API key from the config first and then from the environment variable.
 
 ## License

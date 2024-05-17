@@ -86,6 +86,20 @@ class PluginSettings:  # pragma: no cover
                     f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                 )
 
+        if getattr(self, "API_PROVIDER") not in ("openai", "azure"):
+            raise ImproperlyConfigured(
+                'Invalid value for "API_PROVIDER". '
+                'Please set the "API_PROVIDER" to "openai" or "azure".'
+            )
+
+        if getattr(self, "API_PROVIDER") == "azure":
+            for setting in ("AZURE_API_VERSION", "AZURE_ENDPOINT"):
+                if not getattr(self, setting):
+                    raise ImproperlyConfigured(
+                        f'The "{setting}" setting is required when using Azure API. '
+                        f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
+                    )
+
     def reload(self) -> None:
         """
         Deletes the cached attributes so they will be recomputed next time they are accessed.
@@ -97,17 +111,26 @@ class PluginSettings:  # pragma: no cover
             delattr(self, "_user_settings")
 
 
-TSP_API_KEY = "TRANSCRIBE_SERVICE_PROVIDER_API_KEY"
-
 REQUIRED_SETTINGS = {
-    TSP_API_KEY,
+    "TRANSCRIBE_SERVICE_PROVIDER_API_KEY",
+    "AUDIO_MODEL_NAME",
+    "CHAT_MODEL_NAME",
+    "API_PROVIDER",
 }
 
-DEFAULTS = {TSP_API_KEY: "test"}
+DEFAULTS = {
+    "TRANSCRIBE_SERVICE_PROVIDER_API_KEY": "",
+    "AUDIO_MODEL_NAME": "whisper-1",
+    "CHAT_MODEL_NAME": "gpt-4-turbo",
+    "API_PROVIDER": "openai",
+    "AZURE_API_VERSION": "",
+    "AZURE_ENDPOINT": "",
+}
 
 plugin_settings = PluginSettings(
     PLUGIN_NAME, defaults=DEFAULTS, required_settings=REQUIRED_SETTINGS
 )
+
 
 @receiver(setting_changed)
 def reload_plugin_settings(*args, **kwargs) -> None:

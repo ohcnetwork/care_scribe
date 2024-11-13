@@ -34,6 +34,7 @@ def get_openai_client():
 
 prompt_1 = """
 Given a raw transcript, your task is to extract relevant information and structure it according to a predefined schema.
+Make sure to produce the response keeping the "current" data in mind.
 Output the structured data in JSON format.
 If a field cannot be filled due to missing information in the transcript, do not include it in the output, skip that JSON key.
 For fields that offer options, output the chosen option's ID. Ensure the output strictly adheres to the JSON schema provided.

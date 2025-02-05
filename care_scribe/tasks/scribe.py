@@ -32,22 +32,18 @@ def get_openai_client():
     return AiClient
 
 
-prompt_1 = """
-Given a raw transcript, your task is to extract relevant information and structure it according to a predefined schema.
-Make sure to produce the response keeping the "current" data in mind.
+prompt = """
+Given a raw transcript by the user, your task is to extract relevant information and structure it according to a predefined schema.
+Make sure to produce the response keeping the "current" data in mind. Make sure to infer from the "example" in the schema.
 Output the structured data in JSON format.
 If a field cannot be filled due to missing information in the transcript, do not include it in the output, skip that JSON key.
 For fields that offer options, output the chosen option's ID. Ensure the output strictly adheres to the JSON schema provided.
 If the option is not available in the schema, omit the field from the output.
 DO NOT Hallucinate or make assumptions about the data. Only include information that is explicitly mentioned in the transcript.
 If decimals are requested in the output where the field type is integer, send the default value as per the schema. Do not round off the value.
-"""
+If "current" data is in the form of an array, make sure to ONLY update the "current" data if specifically asked by the user. Do not replace or remove existing data unless the user has asked you to.
 
-prompt_2 = """
-Below is the JSON schema that defines the structure and type of fields expected in the output.
-Use this schema as a guide to ensure your output matches the expected format and types.
-Each field in the output must conform to its definition in the schema, including type, options (where applicable), and format.
-Schema:
+SCHEMA:
 {form_schema}
 """
 
@@ -102,37 +98,26 @@ def process_ai_form_fill(external_id):
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
 
+            messages = [
+                    {
+                        "role": "system",
+                        "content": form.prompt or prompt.replace(
+                            "{form_schema}", json.dumps(form.form_data, indent=2)
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": transcript,
+                    },
+                ]
+
             # Process the transcript with Ayushma
             ai_response = get_openai_client().chat.completions.create(
                 model=plugin_settings.CHAT_MODEL_NAME, # This can be the model name (OPENAI) or the custom deployment name (AZURE) 
                 response_format={"type": "json_object"},
                 max_tokens=4096,
                 temperature=0,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": form.system_prompt or prompt_1,
-                    },
-                    {
-                        "role": "system",
-                        "content": (form.json_prompt or prompt_2).replace(
-                            "{form_schema}", json.dumps(form.form_data, indent=2)
-                        ),
-                    },
-                    {
-                        "role": "system",
-                        "content": "Below is a sample output for reference. Your task is to produce a similar JSON output based on the provided transcript, following the schema and instructions above.\n"
-                        + json.dumps(
-                            {field["id"]: field["example"] for field in form.form_data},
-                            indent=2,
-                        ),
-                    },
-                    {
-                        "role": "user",
-                        "content": "Please process the following transcript and output the structured data in JSON format as per the schema provided above:\nTranscript:\n"
-                        + transcript,
-                    },
-                ],
+                messages=messages
             )
             ai_response_json = ai_response.choices[0].message.content
             logger.info(f"AI response: {ai_response_json}")

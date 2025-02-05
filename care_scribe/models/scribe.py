@@ -63,8 +63,7 @@ class Scribe(BaseModel):
     status = models.CharField(
         max_length=50, choices=Status.choices, default=Status.CREATED
     )
-    system_prompt = models.TextField(null=True, blank=True)
-    json_prompt = models.TextField(null=True, blank=True)
+    prompt = models.TextField(null=True, blank=True)
 
     @property
     def audio_file_ids(self):

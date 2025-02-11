@@ -14,7 +14,8 @@ class ScribeSerializer(serializers.ModelSerializer):
             "status",
             "form_data",
             "audio_file_ids",
-            "prompt"
+            "prompt",
+            "text"
         ]
         read_only_fields = [
             "external_id",

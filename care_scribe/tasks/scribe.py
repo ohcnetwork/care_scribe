@@ -58,11 +58,7 @@ def process_ai_form_fill(external_id):
     )
 
     for form in ai_form_fills:
-        # Skip forms without audio files
-        # if not form.audio_file_ids:
-        #     logger.warning(f"AI form fill {form.external_id} has no audio files")
-        #     continue
-
+        
         logger.info(f"Processing AI form fill {form.external_id}")
 
         messages = [
@@ -79,6 +75,7 @@ def process_ai_form_fill(external_id):
 
         user_contents = []
 
+        # In case text support is needed
         # if form.text:
         #     user_contents.append(
         #         {
@@ -88,7 +85,6 @@ def process_ai_form_fill(external_id):
         #     )
 
         try:
-            # Update status to GENERATING_TRANSCRIPT
             logger.info(f"Generating transcript for AI form fill {form.external_id}")
             form.status = Scribe.Status.GENERATING_TRANSCRIPT
             form.save()
@@ -108,7 +104,7 @@ def process_ai_form_fill(external_id):
                     buffer.name = "file" + "." + format
 
                     transcription = get_openai_client().audio.translations.create(
-                        model=plugin_settings.AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
+                        model=plugin_settings.AUDIO_MODEL_NAME, file=buffer 
                     )
                     transcript += transcription.text
                     logger.info(f"Transcript: {transcript}")
@@ -149,23 +145,6 @@ def process_ai_form_fill(external_id):
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
 
-            # for audio_file_object in audio_file_objects:
-            #     _, audio_file_data = audio_file_object.file_contents()
-            #     format = audio_file_object.internal_name.split('.')[-1]
-            #     print(format)
-            #     encoded_string = base64.b64encode(audio_file_data).decode('utf-8')
-
-            #     user_contents.append(
-            #        {
-            #                 "type": "input_audio",
-            #                 "input_audio": {
-            #                     "data": encoded_string,
-            #                     "format": format
-            #                 }
-            #         }
-                    
-            #     )
-
             messages.append({
                 "role": "user",
                 "content":user_contents
@@ -175,7 +154,7 @@ def process_ai_form_fill(external_id):
 
             # Process the transcript with Ayushma
             ai_response = get_openai_client().chat.completions.create(
-                model=plugin_settings.CHAT_MODEL_NAME, # This can be the model name (OPENAI) or the custom deployment name (AZURE) 
+                model=plugin_settings.CHAT_MODEL_NAME,
                 response_format={"type": "json_object"},
                 max_tokens=4096,
                 temperature=0,

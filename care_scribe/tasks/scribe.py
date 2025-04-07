@@ -101,10 +101,10 @@ def process_ai_form_fill(external_id):
                     _, audio_file_data = audio_file_object.file_contents()
                     format = audio_file_object.internal_name.split('.')[-1]                    
                     buffer = io.BytesIO(audio_file_data)
-                    buffer.name = "file" + "." + format
+                    buffer.name = "file." + format
 
-                    transcription = get_openai_client().audio.translations.create(
-                        model=plugin_settings.AUDIO_MODEL_NAME, file=buffer 
+                    transcription = get_openai_client().audio.transcriptions.create(
+                        model=plugin_settings.AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
                     )
                     transcript += transcription.text
                     logger.info(f"Transcript: {transcript}")

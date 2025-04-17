@@ -40,6 +40,8 @@ Output the structured data in JSON format.
 If a field cannot be filled due to missing information in the transcript, do not include it in the output, skip that JSON key.
 For fields that offer options, output the chosen option's ID. Ensure the output strictly adheres to the JSON schema provided.
 If the option is not available in the schema, omit the field from the output.
+If reading from an image, please read all the data. Do not skip any data or label as "others" or "etc." Read each and every part of the image,
+including the text, numbers, and any other relevant information.
 DO NOT Hallucinate or make assumptions about the data. Only include information that is explicitly mentioned in the transcript.
 If decimals are requested in the output where the field type is integer, send the default value as per the schema. Do not round off the value.
 If "current" data is in the form of an array, make sure to ONLY update the "current" data if specifically asked by the user. Do not replace or remove existing data unless the user has asked you to.

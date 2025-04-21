@@ -34,21 +34,40 @@ def get_openai_client():
 
 
 prompt = """
-You will be given content that can be related to a patient's encounter details in text, audio or visual format. Your task is to extract relevant information and structure it according to a predefined schema.
-Make sure to produce the response keeping the "current" data in mind. Make sure to infer from the "example" in the schema.
-Output the structured data in JSON format.
-If a field cannot be filled due to missing information in the transcript, do not include it in the output, skip that JSON key.
-For fields that offer options, output the chosen option's ID. Ensure the output strictly adheres to the JSON schema provided.
-If the option is not available in the schema, omit the field from the output.
-If reading from an image, please read all the data. Do not skip any data or label as "others" or "etc." Read each and every part of the image,
-including the text, numbers, and any other relevant information.
-DO NOT Hallucinate or make assumptions about the data. Only include information that is explicitly mentioned in the transcript.
-If decimals are requested in the output where the field type is integer, send the default value as per the schema. Do not round off the value.
-If "current" data is in the form of an array, make sure to ONLY update the "current" data if specifically asked by the user. Do not replace or remove existing data unless the user has asked you to.
+You will be provided with details of a patient's encounter in the form of text, audio, or visual content. Your task is xto analyze this information and extract relevant data to structure it according to a predefined JSON schema.
 
-Once you are done, append what you have understood from the text, audio and visual format under a "__scribe__transcription" key in your json response as text ONLY.
+- Analyze data from text, audio, and images while ensuring all relevant information is extracted thoroughly.
+- Adhere strictly to the predefined JSON schema, ensuring the extracted data is accurately structured.
+- When using the schema, if a field cannot be populated due to missing data, exclude the field entirely from the output.
+- Do not make assumptions or fill in data unless it is explicitly stated in the content.
+- When decimals are provided for fields requiring integers, use the default value specified in the schema.
+- If the "current" data is array formatted, update ONLY when the user specifies. Avoid modifying existing data unless instructed.
+- Append any observations or understanding derived from the analysis under the key "__scribe__transcription" in the JSON output.
 
-SCHEMA:
+# Steps
+
+1. **Content Analysis**: Carefully analyze the provided content (text, audio, or images) to identify and extract all relevant data.
+   
+2. **Schema Adherence**: Structure the extracted data according to the provided JSON schema, ensuring compliance with format requirements.
+
+3. **Data Exclusion**: If certain fields cannot be populated due to absence of data, exclude them. Do not guess or assume any information.
+
+4. **Array Data Handling**: Treat "current" structured data according to user instructions, avoiding unwanted modifications.
+
+5. **Transcription Key Addition**: Conclude analysis by appending a summarized understanding of the content under "__scribe__transcription" in the output.
+
+# Output Format
+
+- Provide all extracted and structured data in a JSON format as per the schema.
+- Include a "__scribe__transcription" field summarizing the insights from the content as text.
+
+# Notes
+
+- Ensure no assumptions are made beyond what is explicitly stated in the content inputs.
+- Prioritize adherence to the predefined schema for accuracy in representation.
+- Ensure every bit of content (text, audio, image) is thoroughly read and understood before being omitted from the JSON response.
+
+# SCHEMA
 {form_schema}
 """
 
@@ -158,7 +177,7 @@ def process_ai_form_fill(external_id):
             ai_response = get_openai_client().chat.completions.create(
                 model=plugin_settings.CHAT_MODEL_NAME,
                 response_format={"type": "json_object"},
-                max_tokens=4096,
+                max_tokens=10000,
                 temperature=0,
                 messages=messages
             )

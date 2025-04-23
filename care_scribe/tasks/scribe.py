@@ -135,7 +135,7 @@ def process_ai_form_fill(external_id):
             else:
                 transcript = form.transcript
 
-            if transcript is not "":
+            if transcript != "":
                 user_contents.append(
                     {
                         "type": "text",

@@ -44,7 +44,12 @@ Your task is to analyze this information and extract relevant data to structure 
 - When decimals are provided for fields requiring integers, use the default value specified in the schema.
 - If data is "entered in error", exclude it from the output.
 - If the "current" data is array formatted, update ONLY when the user specifies. Avoid modifying existing data unless instructed.
+- You have to make sure that all data you read from the content is included as per the schema. 
+  If data does not fit into the schema, put it under the other details field if present. If not, exclude it.
+- If data contains medical terms with their codes, example : A32Q Brain Hemorrhage, you can safely ignore the code and only keep the term.
 - Append any observations or understanding derived from the analysis under the key "__scribe__transcription" in the JSON output.
+- If the schema suggests a field to not be optional (i.e. the field key does not end with a "?"), ensure that the field is populated with the correct data type as per the schema.
+  If you are unable to figure out the correct data type, use the first value from the schema as a default.
 
 # Steps
 

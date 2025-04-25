@@ -34,13 +34,15 @@ def get_openai_client():
 
 
 prompt = """
-You will be provided with details of a patient's encounter in the form of text, audio, or visual content. Your task is xto analyze this information and extract relevant data to structure it according to a predefined JSON schema.
+You will be provided with details of a patient's encounter in the form of text, audio, or visual content. 
+Your task is to analyze this information and extract relevant data to structure it according to a predefined JSON schema.
 
 - Analyze data from text, audio, and images while ensuring all relevant information is extracted thoroughly.
 - Adhere strictly to the predefined JSON schema, ensuring the extracted data is accurately structured.
 - When using the schema, if a field cannot be populated due to missing data, exclude the field entirely from the output.
 - Do not make assumptions or fill in data unless it is explicitly stated in the content.
 - When decimals are provided for fields requiring integers, use the default value specified in the schema.
+- If data is "entered in error", exclude it from the output.
 - If the "current" data is array formatted, update ONLY when the user specifies. Avoid modifying existing data unless instructed.
 - Append any observations or understanding derived from the analysis under the key "__scribe__transcription" in the JSON output.
 
@@ -52,9 +54,11 @@ You will be provided with details of a patient's encounter in the form of text, 
 
 3. **Data Exclusion**: If certain fields cannot be populated due to absence of data, exclude them. Do not guess or assume any information.
 
-4. **Array Data Handling**: Treat "current" structured data according to user instructions, avoiding unwanted modifications.
+4. **Extra Data Handling**: If there is data that does not fit into the schema, put it under the other details field if present. If not, exclude it.
 
-5. **Transcription Key Addition**: Conclude analysis by appending a summarized understanding of the content under "__scribe__transcription" in the output.
+5. **Array Data Handling**: Treat "current" structured data according to user instructions, avoiding unwanted modifications.
+
+6. **Transcription Key Addition**: Conclude analysis by appending a summarized understanding of the content under "__scribe__transcription" in the output.
 
 # Output Format
 

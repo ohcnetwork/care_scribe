@@ -9,6 +9,8 @@ from openai import OpenAI, AzureOpenAI
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
+from care.users.models import UserFlag
+from care.facility.models.facility_flag import FacilityFlag
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +158,15 @@ def process_ai_form_fill(external_id):
                     external_id__in=form.document_file_ids
             )
             logger.info(f"Document file objects: {document_file_objects}")
+            if document_file_objects.count() > 0:
+                
+                # Check if Facility or User has OCR ENABLED
+                facility_has_ocr_flag = FacilityFlag.check_facility_has_flag(form.requested_in_facility.id, "SCRIBE_OCR_ENABLED")
+                user_has_ocr_flag = UserFlag.check_user_has_flag(form.requested_by.id, "SCRIBE_OCR_ENABLED")
+
+                if not (user_has_ocr_flag or facility_has_ocr_flag):
+                    raise Exception("OCR is not enabled for this user or facility")
+
             for document_file_object in document_file_objects:
                 _, document_file_data = document_file_object.file_contents()
                 format = document_file_object.internal_name.split('.')[-1]

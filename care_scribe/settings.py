@@ -86,17 +86,33 @@ class PluginSettings:  # pragma: no cover
                     f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                 )
 
-        if getattr(self, "API_PROVIDER") not in ("openai", "azure"):
+        if getattr(self, "API_PROVIDER") not in ("openai", "azure", "google"):
             raise ImproperlyConfigured(
                 'Invalid value for "API_PROVIDER". '
-                'Please set the "API_PROVIDER" to "openai" or "azure".'
+                'Please set the "API_PROVIDER" to "openai", "google" or "azure".'
             )
+        
+        if getattr(self, "API_PROVIDER") == "openai":
+            for setting in ("TRANSCRIBE_SERVICE_PROVIDER_API_KEY"):
+                if not getattr(self, setting):
+                    raise ImproperlyConfigured(
+                        f'The "{setting}" setting is required when using OpenAI API. '
+                        f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
+                    )
 
         if getattr(self, "API_PROVIDER") == "azure":
             for setting in ("AZURE_API_VERSION", "AZURE_ENDPOINT"):
                 if not getattr(self, setting):
                     raise ImproperlyConfigured(
                         f'The "{setting}" setting is required when using Azure API. '
+                        f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
+                    )
+                
+        if getattr(self, "API_PROVIDER") == "google":
+            for setting in ("GOOGLE_PROJECT_ID", "GOOGLE_LOCATION"):
+                if not getattr(self, setting):
+                    raise ImproperlyConfigured(
+                        f'The "{setting}" setting is required when using Google API. '
                         f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                     )
 
@@ -112,7 +128,6 @@ class PluginSettings:  # pragma: no cover
 
 
 REQUIRED_SETTINGS = {
-    "TRANSCRIBE_SERVICE_PROVIDER_API_KEY",
     "AUDIO_MODEL_NAME",
     "CHAT_MODEL_NAME",
     "API_PROVIDER",
@@ -125,6 +140,8 @@ DEFAULTS = {
     "API_PROVIDER": "openai",
     "AZURE_API_VERSION": "",
     "AZURE_ENDPOINT": "",
+    "GOOGLE_PROJECT_ID" : "",
+    "GOOGLE_LOCATION" : "",
 }
 
 plugin_settings = PluginSettings(

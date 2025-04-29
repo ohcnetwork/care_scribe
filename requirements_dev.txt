@@ -18,3 +18,4 @@ django-environ
 django-filter
 openai
 jsonschema
+google-genai

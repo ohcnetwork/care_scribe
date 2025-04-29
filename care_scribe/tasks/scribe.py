@@ -4,11 +4,14 @@ import logging
 import io
 
 from celery import shared_task
-from openai import OpenAI, AzureOpenAI
-
+from openai import OpenAI, AzureOpenAI, api_key
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
+from google.genai import types
+from google import genai
+from google.auth import default
+import google.auth.transport.requests
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 
@@ -27,9 +30,21 @@ def get_openai_client():
                 azure_endpoint=plugin_settings.AZURE_ENDPOINT
             )
         elif plugin_settings.API_PROVIDER == 'openai':
+            # credentials, _ = default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            # credentials.refresh(google.auth.transport.requests.Request())
+            # api_key = credentials.token
+
             AiClient = OpenAI(
-                api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY
+                api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY,
             )
+
+        elif plugin_settings.API_PROVIDER == 'google':
+            AiClient = genai.Client(
+                vertexai=True,
+                project=plugin_settings.GOOGLE_PROJECT_ID,
+                location=plugin_settings.GOOGLE_LOCATION,
+            )
+
         else:
             raise Exception('Invalid API_PROVIDER in plugin_settings')
     return AiClient
@@ -67,19 +82,39 @@ Your task is to analyze this information and extract relevant data to structure 
 
 6. **Transcription Key Addition**: Conclude analysis by appending a summarized understanding of the content under "__scribe__transcription" in the output.
 
+# Existing data
+
+{form_schema}
+
 # Output Format
 
 - Provide all extracted and structured data in a JSON format as per the schema.
 - Include a "__scribe__transcription" field summarizing the insights from the content as text.
+- Make sure to translate everything to English if the content is in a different language.
+
+```
+{
+  "<id>": "value",
+  ...
+  "__scribe__transcription": "Your summarized understanding of the content goes here.",
+}
+```
+
+example: 
+
+````
+{
+    "0" : 34,
+    "1" : "CRITICAL".
+    "__scribe__transcription": "The patient is in critical condition and requires immediate attention. Their SPO2 is 34",
+}
+```
 
 # Notes
 
 - Ensure no assumptions are made beyond what is explicitly stated in the content inputs.
 - Prioritize adherence to the predefined schema for accuracy in representation.
 - Ensure every bit of content (text, audio, image) is thoroughly read and understood before being omitted from the JSON response.
-
-# SCHEMA
-{form_schema}
 """
 
 
@@ -93,17 +128,33 @@ def process_ai_form_fill(external_id):
         
         logger.info(f"Processing AI form fill {form.external_id}")
 
-        messages = [
-            {
-                "role": "system",
-                "content": [{
-                    "type" : "text",
-                    "text": form.prompt or prompt.replace(
-                        "{form_schema}", json.dumps(form.form_data, indent=2)
-                    ),
-                }]
-            },
-        ]
+        if plugin_settings.API_PROVIDER == 'google':
+
+            messages = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=
+                            form.prompt or prompt.replace(
+                                "{form_schema}", json.dumps(form.form_data, indent=2)
+                            )
+                        )
+                    ]
+                )
+            ]
+
+        else:
+            messages = [
+                {
+                    "role": "system",
+                    "content": [{
+                        "type" : "text",
+                        "text": form.prompt or prompt.replace(
+                            "{form_schema}", json.dumps(form.form_data, indent=2)
+                        ),
+                    }]
+                },
+            ]
 
         user_contents = []
 
@@ -135,14 +186,28 @@ def process_ai_form_fill(external_id):
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file." + format
 
-                    transcription = get_openai_client().audio.translations.create(
-                        model=plugin_settings.AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
-                    )
-                    transcript += transcription.text
-                    logger.info(f"Transcript: {transcript}")
+                    if plugin_settings.API_PROVIDER == 'google':
+                        messages.append(types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_text(text="Audio File:"),
+                                types.Part.from_bytes(
+                                    data=audio_file_data,
+                                    mime_type="audio/" + format,
+                                )
+                            ]
+                        ))
+                        
+                    else:
 
-                # Save the transcript to the form
-                form.transcript = transcript
+                        transcription = get_openai_client().audio.translations.create(
+                            model=plugin_settings.AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
+                        )
+                        transcript += transcription.text
+                        logger.info(f"Transcript: {transcript}")
+
+                        # Save the transcript to the form
+                        form.transcript = transcript
             else:
                 transcript = form.transcript
 
@@ -172,43 +237,75 @@ def process_ai_form_fill(external_id):
                 format = document_file_object.internal_name.split('.')[-1]
                 encoded_string = base64.b64encode(document_file_data).decode('utf-8')
 
-                user_contents.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/{format};base64,{encoded_string}"
+                if plugin_settings.API_PROVIDER == 'google':
+                    messages.append(types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(
+                                data=document_file_data,
+                                mime_type="image/" + format,
+                            )
+                        ]
+                    ))
+                else:
+                    user_contents.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{format};base64,{encoded_string}"
+                            }
                         }
-                    }
-                )
+                    )
 
 
             logger.info(f"Generating AI form fill {form.external_id}")
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
 
-            messages.append({
-                "role": "user",
-                "content":user_contents
-            })
+            if plugin_settings.API_PROVIDER == 'google':
 
-            print(messages)
+                print(messages)
+                
+                ai_response = get_openai_client().models.generate_content(
+                    model=plugin_settings.CHAT_MODEL_NAME,
+                    contents=messages,
+                    config=types.GenerateContentConfig(
+                        temperature=0,
+                        max_output_tokens=8192,
+                        response_mime_type="application/json",
+                    )
+                )
 
-            # Process the transcript with Ayushma
-            ai_response = get_openai_client().chat.completions.create(
-                model=plugin_settings.CHAT_MODEL_NAME,
-                response_format={"type": "json_object"},
-                max_tokens=10000,
-                temperature=0,
-                messages=messages
-            )
-            response = ai_response.choices[0].message
-            
-            if response.content == None:
-                form.status = Scribe.Status.REFUSED
+                ai_response_json = ai_response.text
+
+                form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
                 form.save()
-                continue
+            
+            else:
 
-            ai_response_json = response.content
+                messages.append({
+                    "role": "user",
+                    "content":user_contents
+                })
+
+                print(messages)
+
+                # Process the transcript with Ayushma
+                ai_response = get_openai_client().chat.completions.create(
+                    model=plugin_settings.CHAT_MODEL_NAME,
+                    response_format={"type": "json_object"},
+                    max_tokens=10000,
+                    temperature=0,
+                    messages=messages
+                )
+                response = ai_response.choices[0].message
+                
+                if response.content == None:
+                    form.status = Scribe.Status.REFUSED
+                    form.save()
+                    continue
+
+                ai_response_json = response.content
             logger.info(f"AI response: {ai_response_json}")
 
             # Save AI response to the form
@@ -220,4 +317,4 @@ def process_ai_form_fill(external_id):
             # Log the error or handle it as needed
             form.status = Scribe.Status.FAILED
             form.save()
-            logger.error(f"AI form fill processing failed: {e}")
+            logger.error(f"AI form fill processing failed at line {e.__traceback__.tb_lineno}: {e}")

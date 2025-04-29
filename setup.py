@@ -19,6 +19,7 @@ requirements = [
     "django-filter",
     "openai",
     "jsonschema",
+    "google-genai",
 ]
 
 test_requirements = []

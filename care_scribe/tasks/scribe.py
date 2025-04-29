@@ -23,26 +23,22 @@ AiClient = None
 def get_openai_client():
     global AiClient
     if AiClient is None:
-        if plugin_settings.API_PROVIDER == 'azure':
+        if plugin_settings.SCRIBE_API_PROVIDER == 'azure':
             AiClient = AzureOpenAI(
-                api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY,
-                api_version=plugin_settings.AZURE_API_VERSION,
-                azure_endpoint=plugin_settings.AZURE_ENDPOINT
+                api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
+                api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
+                azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT
             )
-        elif plugin_settings.API_PROVIDER == 'openai':
-            # credentials, _ = default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-            # credentials.refresh(google.auth.transport.requests.Request())
-            # api_key = credentials.token
-
+        elif plugin_settings.SCRIBE_API_PROVIDER == 'openai':
             AiClient = OpenAI(
-                api_key=plugin_settings.TRANSCRIBE_SERVICE_PROVIDER_API_KEY,
+                api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
             )
 
-        elif plugin_settings.API_PROVIDER == 'google':
+        elif plugin_settings.SCRIBE_API_PROVIDER == 'google':
             AiClient = genai.Client(
                 vertexai=True,
-                project=plugin_settings.GOOGLE_PROJECT_ID,
-                location=plugin_settings.GOOGLE_LOCATION,
+                project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
+                location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
             )
 
         else:
@@ -128,7 +124,7 @@ def process_ai_form_fill(external_id):
         
         logger.info(f"Processing AI form fill {form.external_id}")
 
-        if plugin_settings.API_PROVIDER == 'google':
+        if plugin_settings.SCRIBE_API_PROVIDER == 'google':
 
             messages = [
                 types.Content(
@@ -186,7 +182,7 @@ def process_ai_form_fill(external_id):
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file." + format
 
-                    if plugin_settings.API_PROVIDER == 'google':
+                    if plugin_settings.SCRIBE_API_PROVIDER == 'google':
                         messages.append(types.Content(
                             role="user",
                             parts=[
@@ -201,7 +197,7 @@ def process_ai_form_fill(external_id):
                     else:
 
                         transcription = get_openai_client().audio.translations.create(
-                            model=plugin_settings.AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
+                            model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
                         )
                         transcript += transcription.text
                         logger.info(f"Transcript: {transcript}")
@@ -237,7 +233,7 @@ def process_ai_form_fill(external_id):
                 format = document_file_object.internal_name.split('.')[-1]
                 encoded_string = base64.b64encode(document_file_data).decode('utf-8')
 
-                if plugin_settings.API_PROVIDER == 'google':
+                if plugin_settings.SCRIBE_API_PROVIDER == 'google':
                     messages.append(types.Content(
                         role="user",
                         parts=[
@@ -262,12 +258,12 @@ def process_ai_form_fill(external_id):
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
 
-            if plugin_settings.API_PROVIDER == 'google':
+            if plugin_settings.SCRIBE_API_PROVIDER == 'google':
 
                 print(messages)
                 
                 ai_response = get_openai_client().models.generate_content(
-                    model=plugin_settings.CHAT_MODEL_NAME,
+                    model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     contents=messages,
                     config=types.GenerateContentConfig(
                         temperature=0,
@@ -292,7 +288,7 @@ def process_ai_form_fill(external_id):
 
                 # Process the transcript with Ayushma
                 ai_response = get_openai_client().chat.completions.create(
-                    model=plugin_settings.CHAT_MODEL_NAME,
+                    model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     response_format={"type": "json_object"},
                     max_tokens=10000,
                     temperature=0,

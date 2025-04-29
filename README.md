@@ -28,28 +28,24 @@ scribe_plug = Plug(
     package_name="git+https://github.com/ohcnetwork/care_scribe.git",
     version="@master",
     configs={
-        "TRANSCRIBE_SERVICE_PROVIDER_API_KEY": "secret",
-        "API_PROVIDER": "openai",  # or "azure"
-        "AZURE_API_VERSION": "",  # required if API_PROVIDER is "azure"
-        "AZURE_ENDPOINT": "",  # required if API_PROVIDER is "azure"
-        "AUDIO_MODEL_NAME": "",  # model name for OpenAI or custom deployment name for Azure
-        "CHAT_MODEL_NAME": "",  # model name for OpenAI or custom deployment name for Azure
+        "SCRIBE_API_PROVIDER": "openai",  # or "azure" or "google"
+=       "SCRIBE_PROVIDER_API_KEY": "my-api-key" # not required if API_PROVIDER is "google"
+        "SCRIBE_AUDIO_MODEL_NAME": "",  # model name for speech to text - Not required for Google
+        "SCRIBE_CHAT_MODEL_NAME": "",  # model name for chat completion
+
+        # Azure OpenAI Configs
+        "SCRIBE_AZURE_API_VERSION": "",
+        "SCRIBE_AZURE_ENDPOINT": "",
+
+        # Google Configs
+        "SCRIBE_GOOGLE_PROJECT_ID": "my-gcp-project",
+        "SCRIBE_GOOGLE_LOCATION": "us-central1",
+        
     },
 )
 plugs = [scribe_plug]
 ...
 ```
-
-## Configuration
-
-The following configurations variables are available for Care Scribe:
-
-- `TRANSCRIBE_SERVICE_PROVIDER_API_KEY`: API key for the transcribe service provider (OpenAI whisper or Google Speech to Text)
-- `API_PROVIDER`: The API provider to use for transcription. Can be either "openai" or "azure".
-- `AZURE_API_VERSION`: The version of the Azure API to use. This is required if `API_PROVIDER` is set to "azure".
-- `AZURE_ENDPOINT`: The endpoint for the Azure API. This is required if `API_PROVIDER` is set to "azure".
-- `AUDIO_MODEL_NAME`: The model name for OpenAI or the custom deployment name for Azure.
-- `CHAT_MODEL_NAME`: The model name for OpenAI or the custom deployment name for Azure.
 
 The plugin will try to find the API key from the config first and then from the environment variable.
 

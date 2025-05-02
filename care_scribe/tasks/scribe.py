@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import io
+import os
 
 from celery import shared_task
 from openai import OpenAI, AzureOpenAI, api_key
@@ -10,8 +11,7 @@ from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
 from google.genai import types
 from google import genai
-from google.auth import default
-import google.auth.transport.requests
+from google.oauth2 import service_account
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 
@@ -35,10 +35,22 @@ def get_openai_client():
             )
 
         elif plugin_settings.SCRIBE_API_PROVIDER == 'google':
+            credentials = None
+            b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
+            
+            if b64_credentials:
+                print("Using base64 credentials")
+                info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
+                credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+                print(credentials)
+            else:
+                print("Using file credentials")
+                
             AiClient = genai.Client(
                 vertexai=True,
                 project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
                 location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
+                credentials=credentials
             )
 
         else:

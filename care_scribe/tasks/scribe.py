@@ -4,14 +4,12 @@ import logging
 import io
 
 from celery import shared_task
-from openai import OpenAI, AzureOpenAI, api_key
+from openai import OpenAI, AzureOpenAI
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
 from google.genai import types
 from google import genai
-from google.auth import default
-import google.auth.transport.requests
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 
@@ -20,7 +18,7 @@ logger = logging.getLogger(__name__)
 AiClient = None
 
 
-def get_openai_client():
+def ai_client():
     global AiClient
     if AiClient is None:
         if plugin_settings.SCRIBE_API_PROVIDER == 'azure':
@@ -196,8 +194,8 @@ def process_ai_form_fill(external_id):
                         
                     else:
 
-                        transcription = get_openai_client().audio.translations.create(
-                            model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
+                        transcription = ai_client().audio.translations.create(
+                            model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer
                         )
                         transcript += transcription.text
                         logger.info(f"Transcript: {transcript}")
@@ -262,7 +260,7 @@ def process_ai_form_fill(external_id):
 
                 print(messages)
                 
-                ai_response = get_openai_client().models.generate_content(
+                ai_response = ai_client().models.generate_content(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     contents=messages,
                     config=types.GenerateContentConfig(
@@ -287,7 +285,7 @@ def process_ai_form_fill(external_id):
                 print(messages)
 
                 # Process the transcript with Ayushma
-                ai_response = get_openai_client().chat.completions.create(
+                ai_response = ai_client().chat.completions.create(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     response_format={"type": "json_object"},
                     max_tokens=10000,

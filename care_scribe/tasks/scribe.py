@@ -3,6 +3,7 @@ import json
 import logging
 import io
 import os
+from time import perf_counter
 
 from celery import shared_task
 from openai import OpenAI, AzureOpenAI
@@ -132,7 +133,11 @@ def process_ai_form_fill(external_id):
         external_id=external_id, status=Scribe.Status.READY
     )
 
+    initiation_time = perf_counter()
+
     for form in ai_form_fills:
+        
+        form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
         
         logger.info(f"Processing AI form fill {form.external_id}")
 
@@ -213,6 +218,10 @@ def process_ai_form_fill(external_id):
                         )
                         transcript += transcription.text
                         logger.info(f"Transcript: {transcript}")
+                        
+                        transcription_time = perf_counter() - initiation_time
+                        form.meta["transcription_time"] = transcription_time
+                        form.save()
 
                         # Save the transcript to the form
                         form.transcript = transcript
@@ -269,6 +278,8 @@ def process_ai_form_fill(external_id):
             logger.info(f"Generating AI form fill {form.external_id}")
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
+            
+            completion_start_time = perf_counter()
 
             if plugin_settings.SCRIBE_API_PROVIDER == 'google':
 
@@ -285,9 +296,15 @@ def process_ai_form_fill(external_id):
                 )
 
                 ai_response_json = ai_response.text
+                
+                completion_time = perf_counter() - completion_start_time
 
                 form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
-                form.save()
+                
+                form.meta["completion_id"] = ai_response.response_id
+                form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
+                form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
+                form.meta["completion_time"] = completion_time
             
             else:
 
@@ -314,6 +331,11 @@ def process_ai_form_fill(external_id):
                     continue
 
                 ai_response_json = response.content
+                form.meta["completion_id"] = ai_response.id
+                form.meta["completion_input_tokens"] = ai_response.usage.prompt_tokens
+                form.meta["completion_output_tokens"] = ai_response.usage.completion_tokens
+                form.meta["completion_time"] = perf_counter() - completion_start_time
+                
             logger.info(f"AI response: {ai_response_json}")
 
             # Save AI response to the form

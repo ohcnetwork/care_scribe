@@ -20,7 +20,8 @@ class ScribeSerializer(serializers.ModelSerializer):
             "form_data",
             "audio_file_ids",
             "prompt",
-            "text"
+            "text",
+            "meta"
         ]
         read_only_fields = [
             "external_id",

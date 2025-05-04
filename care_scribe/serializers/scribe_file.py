@@ -70,4 +70,5 @@ class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "upload_completed",
+            "signed_url"
         )

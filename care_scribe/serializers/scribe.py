@@ -21,7 +21,10 @@ class ScribeSerializer(serializers.ModelSerializer):
             "audio_file_ids",
             "prompt",
             "text",
-            "meta"
+            "meta",
+            "created_date",
+            "modified_date",
+            "document_file_ids"
         ]
         read_only_fields = [
             "external_id",
@@ -29,6 +32,9 @@ class ScribeSerializer(serializers.ModelSerializer):
             "requested_in_facility",
             "ai_response",
             "audio_file_ids",
+            "created_date",
+            "modified_date",
+            "document_file_ids"
         ]
 
     def save(self, **kwargs):

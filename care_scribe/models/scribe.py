@@ -38,10 +38,30 @@ form_data_schema = {
     },
 }
 
+meta_schema = {
+    "type": "object",
+    "properties": {
+        "provider" : {
+            "type": "string",
+            "enum": ["google", "openai", "azure"],
+        },
+        "transcription_time": {"type": "integer"},
+        "completion_output_tokens" : {"type": "integer"},
+        "completion_input_tokens" : {"type": "integer"},
+        "completion_time": {"type": "integer"},
+        "completion_id" : {"type": "string"},
+    },
+}
 
 def validate_json_schema(value):
     try:
         jsonschema.validate(value, form_data_schema)
+    except jsonschema.ValidationError as e:
+        raise jsonschema.ValidationError(f"Invalid JSON data: {e}")
+    
+def validate_json_schema_meta(value):
+    try:
+        jsonschema.validate(value, meta_schema)
     except jsonschema.ValidationError as e:
         raise jsonschema.ValidationError(f"Invalid JSON data: {e}")
 
@@ -69,6 +89,7 @@ class Scribe(BaseModel):
         max_length=50, choices=Status.choices, default=Status.CREATED
     )
     prompt = models.TextField(null=True, blank=True)
+    meta = models.JSONField(null=True, blank=True, default=dict, validators=[validate_json_schema_meta])
 
     @property
     def audio_file_ids(self):

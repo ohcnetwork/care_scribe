@@ -19,3 +19,6 @@ django-filter
 openai
 jsonschema
 google-genai
+
+genkit
+genkit-plugin-google-genai

@@ -6,58 +6,85 @@ import os
 from time import perf_counter
 
 from celery import shared_task
-from openai import OpenAI, AzureOpenAI
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
 from google.genai import types
 from google import genai
 from google.oauth2 import service_account
+from genkit.ai import Genkit
+from genkit.plugins.google_genai import VertexAI
+from genkit.plugins.compat_oai import OpenAI
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 
 logger = logging.getLogger(__name__)
 
-AiClient = None
+# AiClient = None
 
 
-def ai_client():
-    global AiClient
-    if AiClient is None:
-        if plugin_settings.SCRIBE_API_PROVIDER == 'azure':
-            AiClient = AzureOpenAI(
-                api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
-                api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
-                azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT
-            )
-        elif plugin_settings.SCRIBE_API_PROVIDER == 'openai':
-            AiClient = OpenAI(
-                api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
-            )
+# def ai_client():
+#     global AiClient
+#     if AiClient is None:
+#         if plugin_settings.SCRIBE_API_PROVIDER == 'azure':
+#             AiClient = AzureOpenAI(
+#                 api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
+#                 api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
+#                 azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT
+#             )
+#         elif plugin_settings.SCRIBE_API_PROVIDER == 'openai':
+#             AiClient = OpenAI(
+#                 api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
+#             )
 
-        elif plugin_settings.SCRIBE_API_PROVIDER == 'google':
-            credentials = None
-            b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
+#         elif plugin_settings.SCRIBE_API_PROVIDER == 'google':
+#             credentials = None
+#             b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
             
-            if b64_credentials:
-                print("Using base64 credentials")
-                info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
-                credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
-                print(credentials)
-            else:
-                print("Using file credentials")
+#             if b64_credentials:
+#                 print("Using base64 credentials")
+#                 info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
+#                 credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+#                 print(credentials)
+#             else:
+#                 print("Using file credentials")
                 
-            AiClient = genai.Client(
-                vertexai=True,
-                project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
-                location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
-                credentials=credentials
-            )
+#             AiClient = genai.Client(
+#                 vertexai=True,
+#                 project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
+#                 location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
+#                 credentials=credentials
+#             )
 
+#         else:
+#             raise Exception('Invalid API_PROVIDER in plugin_settings')
+#     return AiClient
+
+def get_genkit_plugins():
+    if plugin_settings.SCRIBE_API_PROVIDER == "google":
+        credentials = None
+        b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
+        
+        if b64_credentials:
+            print("Using base64 credentials")
+            info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
+            credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            print(credentials)
         else:
-            raise Exception('Invalid API_PROVIDER in plugin_settings')
-    return AiClient
-
+            print("Using file credentials")
+            
+        return VertexAI(
+            project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
+            location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
+            credentials=credentials
+        )
+    else:
+        return OpenAI(
+            api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
+            api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
+            azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT
+        )
+    
 
 prompt = """
 You will be provided with details of a patient's encounter in the form of text, audio, or visual content. 
@@ -126,20 +153,27 @@ example:
 - Ensure every bit of content (text, audio, image) is thoroughly read and understood before being omitted from the JSON response.
 """
 
-
 @shared_task
 def process_ai_form_fill(external_id):
-    ai_form_fills = Scribe.objects.filter(
+    
+    ai = Genkit(
+        plugins=[
+            get_genkit_plugins()
+        ],
+        model=plugin_settings.SCRIBE_CHAT_MODEL_NAME
+    )
+    
+    ready_scribes = Scribe.objects.filter(
         external_id=external_id, status=Scribe.Status.READY
     )
 
     initiation_time = perf_counter()
 
-    for form in ai_form_fills:
+    for scribe in ready_scribes:
         
-        form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
+        scribe.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
         
-        logger.info(f"Processing AI form fill {form.external_id}")
+        logger.info(f"Processing AI form fill {scribe.external_id}")
 
         if plugin_settings.SCRIBE_API_PROVIDER == 'google':
 

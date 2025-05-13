@@ -98,14 +98,14 @@ Your task is to analyze this information and extract relevant data to structure 
 # Output Format
 
 - Provide all extracted and structured data in a JSON format as per the schema.
-- Include a "__scribe__transcription" field summarizing the insights from the content as text.
+- Include a "__scribe__transcription" field that contains the word to word transcription of the audio or the text content, or a summary of the image content.
 - Make sure to translate everything to English if the content is in a different language.
 
 ```
 {
   "<id>": "value",
   ...
-  "__scribe__transcription": "Your summarized understanding of the content goes here.",
+  "__scribe__transcription": "<transcription>",
 }
 ```
 
@@ -171,14 +171,21 @@ def process_ai_form_fill(external_id):
 
         user_contents = []
 
-        # In case text support is needed
-        # if form.text:
-        #     user_contents.append(
-        #         {
-        #             "type": "text",
-        #             "text": form.text
-        #         }
-        #     )
+        if form.text:
+            if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+                messages.append(types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=form.text)
+                    ]
+                ))
+            else:
+                user_contents.append(
+                    {
+                        "type": "text",
+                        "text": form.text
+                    }
+                )
 
         try:
             logger.info(f"Generating transcript for AI form fill {form.external_id}")
@@ -228,14 +235,6 @@ def process_ai_form_fill(external_id):
             else:
                 transcript = form.transcript
 
-            if transcript != "":
-                user_contents.append(
-                    {
-                        "type": "text",
-                        "text": transcript
-                    }
-                )
-
             document_file_objects = ScribeFile.objects.filter(
                     external_id__in=form.document_file_ids
             )
@@ -271,6 +270,22 @@ def process_ai_form_fill(external_id):
                             "image_url": {
                                 "url": f"data:image/{format};base64,{encoded_string}"
                             }
+                        }
+                    )
+                    
+            if transcript != "":
+                if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+                    messages.append(types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(text=transcript)
+                        ]
+                    ))
+                else:
+                    user_contents.append(
+                        {
+                            "type": "text",
+                            "text": transcript
                         }
                     )
 

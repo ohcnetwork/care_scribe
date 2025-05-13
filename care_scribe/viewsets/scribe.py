@@ -26,10 +26,7 @@ class ScribeViewset(
 
     def get_queryset(self):
         user = self.request.user
-        queryset = self.queryset
-        if not user.is_superuser:
-            queryset = queryset.filter(requested_by=user)
-        return queryset
+        return self.queryset.filter(requested_by=user)
 
     def perform_create(self, serializer):
         serializer.save(requested_by=self.request.user)

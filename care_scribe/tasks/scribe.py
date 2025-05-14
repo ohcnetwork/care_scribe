@@ -3,9 +3,10 @@ import json
 import logging
 import io
 import os
+from time import perf_counter
 
 from celery import shared_task
-from openai import OpenAI, AzureOpenAI, api_key
+from openai import OpenAI, AzureOpenAI
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 AiClient = None
 
 
-def get_openai_client():
+def ai_client():
     global AiClient
     if AiClient is None:
         if plugin_settings.SCRIBE_API_PROVIDER == 'azure':
@@ -97,14 +98,14 @@ Your task is to analyze this information and extract relevant data to structure 
 # Output Format
 
 - Provide all extracted and structured data in a JSON format as per the schema.
-- Include a "__scribe__transcription" field summarizing the insights from the content as text.
+- Include a "__scribe__transcription" field that contains the word to word transcription of the audio or the text content, or a summary of the image content.
 - Make sure to translate everything to English if the content is in a different language.
 
 ```
 {
   "<id>": "value",
   ...
-  "__scribe__transcription": "Your summarized understanding of the content goes here.",
+  "__scribe__transcription": "<transcription>",
 }
 ```
 
@@ -132,7 +133,11 @@ def process_ai_form_fill(external_id):
         external_id=external_id, status=Scribe.Status.READY
     )
 
+    initiation_time = perf_counter()
+
     for form in ai_form_fills:
+        
+        form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
         
         logger.info(f"Processing AI form fill {form.external_id}")
 
@@ -166,14 +171,21 @@ def process_ai_form_fill(external_id):
 
         user_contents = []
 
-        # In case text support is needed
-        # if form.text:
-        #     user_contents.append(
-        #         {
-        #             "type": "text",
-        #             "text": form.text
-        #         }
-        #     )
+        if form.text:
+            if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+                messages.append(types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=form.text)
+                    ]
+                ))
+            else:
+                user_contents.append(
+                    {
+                        "type": "text",
+                        "text": form.text
+                    }
+                )
 
         try:
             logger.info(f"Generating transcript for AI form fill {form.external_id}")
@@ -208,24 +220,20 @@ def process_ai_form_fill(external_id):
                         
                     else:
 
-                        transcription = get_openai_client().audio.translations.create(
-                            model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer # This can be the model name (OPENAI) or the custom deployment name (AZURE)
+                        transcription = ai_client().audio.translations.create(
+                            model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer
                         )
                         transcript += transcription.text
                         logger.info(f"Transcript: {transcript}")
+                        
+                        transcription_time = perf_counter() - initiation_time
+                        form.meta["transcription_time"] = transcription_time
+                        form.save()
 
                         # Save the transcript to the form
                         form.transcript = transcript
             else:
                 transcript = form.transcript
-
-            if transcript != "":
-                user_contents.append(
-                    {
-                        "type": "text",
-                        "text": transcript
-                    }
-                )
 
             document_file_objects = ScribeFile.objects.filter(
                     external_id__in=form.document_file_ids
@@ -264,17 +272,35 @@ def process_ai_form_fill(external_id):
                             }
                         }
                     )
+                    
+            if transcript != "":
+                if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+                    messages.append(types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(text=transcript)
+                        ]
+                    ))
+                else:
+                    user_contents.append(
+                        {
+                            "type": "text",
+                            "text": transcript
+                        }
+                    )
 
 
             logger.info(f"Generating AI form fill {form.external_id}")
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
+            
+            completion_start_time = perf_counter()
 
             if plugin_settings.SCRIBE_API_PROVIDER == 'google':
 
                 print(messages)
                 
-                ai_response = get_openai_client().models.generate_content(
+                ai_response = ai_client().models.generate_content(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     contents=messages,
                     config=types.GenerateContentConfig(
@@ -285,9 +311,15 @@ def process_ai_form_fill(external_id):
                 )
 
                 ai_response_json = ai_response.text
+                
+                completion_time = perf_counter() - completion_start_time
 
                 form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
-                form.save()
+                
+                form.meta["completion_id"] = ai_response.response_id
+                form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
+                form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
+                form.meta["completion_time"] = completion_time
             
             else:
 
@@ -299,7 +331,7 @@ def process_ai_form_fill(external_id):
                 print(messages)
 
                 # Process the transcript with Ayushma
-                ai_response = get_openai_client().chat.completions.create(
+                ai_response = ai_client().chat.completions.create(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     response_format={"type": "json_object"},
                     max_tokens=10000,
@@ -314,6 +346,11 @@ def process_ai_form_fill(external_id):
                     continue
 
                 ai_response_json = response.content
+                form.meta["completion_id"] = ai_response.id
+                form.meta["completion_input_tokens"] = ai_response.usage.prompt_tokens
+                form.meta["completion_output_tokens"] = ai_response.usage.completion_tokens
+                form.meta["completion_time"] = perf_counter() - completion_start_time
+                
             logger.info(f"AI response: {ai_response_json}")
 
             # Save AI response to the form

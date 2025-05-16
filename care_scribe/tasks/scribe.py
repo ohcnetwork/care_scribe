@@ -313,8 +313,12 @@ def process_ai_form_fill(external_id):
                 ai_response_json = ai_response.text
                 
                 completion_time = perf_counter() - completion_start_time
-
-                form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
+                
+                try:
+                    form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
+                except Exception as e:
+                    logger.error(f"Error parsing Gemini AI response as JSON. Response: {ai_response_json}.\n\n Completion ID: {ai_response.response_id}")
+                    raise e
                 
                 form.meta["completion_id"] = ai_response.response_id
                 form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count

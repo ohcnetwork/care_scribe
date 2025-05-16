@@ -11,6 +11,9 @@ from care_scribe.models.scribe import Scribe
 from care_scribe.serializers.scribe import ScribeSerializer
 from care_scribe.tasks.scribe import process_ai_form_fill
 
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters as rest_framework_filters
+
 
 class ScribeViewset(
     ListModelMixin,
@@ -23,6 +26,19 @@ class ScribeViewset(
     serializer_class = ScribeSerializer
     lookup_field = "external_id"
     permission_classes = [IsAuthenticated]
+    filter_backends = [
+        DjangoFilterBackend,
+        rest_framework_filters.OrderingFilter,
+        rest_framework_filters.SearchFilter,
+    ]
+    search_fields = [
+        "requested_in_facility__name",
+        "requested_in_encounter__patient__name",
+        "requested_in_encounter__external_id",
+    ]
+    filterset_fields = [
+        "status"
+    ]
 
     def get_queryset(self):
         user = self.request.user

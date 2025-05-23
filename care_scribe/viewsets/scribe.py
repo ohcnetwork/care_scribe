@@ -14,23 +14,30 @@ from care_scribe.tasks.scribe import process_ai_form_fill
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters as rest_framework_filters
 from rest_framework.pagination import LimitOffsetPagination
-from django.db.models import Q
-from rest_framework.filters import BaseFilterBackend
+from django_filters import rest_framework as filters
 
-class ScribeSearchFilter(BaseFilterBackend):
-    def filter_queryset(self, request, queryset, view):
-        search = request.query_params.get("search")
-        if not search:
-            return queryset
-
-        return queryset.filter(
-            Q(requested_in_facility__name__icontains=search) |
-            Q(requested_in_encounter__patient__name__icontains=search) |
-            Q(requested_in_encounter__external_id__icontains=search) |
-            Q(transcript__icontains=search)
-        )
-
-
+class ScribeFilter(filters.FilterSet):
+    status = filters.ChoiceFilter(
+        field_name="status",
+        choices=Scribe.Status.choices,
+        label="Status",
+    )
+    facility = filters.CharFilter(
+        field_name="requested_in_facility__name",
+        lookup_expr="icontains",
+        label="Facility Name",
+    )
+    patient = filters.CharFilter(
+        field_name="requested_in_encounter__patient__name",
+        lookup_expr="icontains",
+        label="Patient Name",
+    )
+    encounter_id = filters.CharFilter(
+        field_name="requested_in_encounter__external_id",
+        lookup_expr="exact",
+        label="Encounter ID",
+    )
+   
 class ScribeViewset(
     ListModelMixin,
     RetrieveModelMixin,
@@ -45,12 +52,9 @@ class ScribeViewset(
     filter_backends = [
         DjangoFilterBackend,
         rest_framework_filters.OrderingFilter,
-        ScribeSearchFilter,
     ]
+    filterset_class = ScribeFilter
     pagination_class = LimitOffsetPagination
-    filterset_fields = [
-        "status"
-    ]
 
     def get_queryset(self):
         user = self.request.user

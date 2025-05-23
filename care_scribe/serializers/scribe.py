@@ -1,4 +1,3 @@
-from attr import fields
 from rest_framework import serializers
 from care.facility.models.facility import Facility
 from care.emr.models.encounter import Encounter

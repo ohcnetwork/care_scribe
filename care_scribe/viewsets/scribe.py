@@ -13,6 +13,7 @@ from care_scribe.tasks.scribe import process_ai_form_fill
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters as rest_framework_filters
+from rest_framework.pagination import LimitOffsetPagination
 
 
 class ScribeViewset(
@@ -36,6 +37,7 @@ class ScribeViewset(
         "requested_in_encounter__patient__name",
         "requested_in_encounter__external_id",
     ]
+    pagination_class = LimitOffsetPagination
     filterset_fields = [
         "status"
     ]

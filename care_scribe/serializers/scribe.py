@@ -1,13 +1,47 @@
 from rest_framework import serializers
 from care.facility.models.facility import Facility
 from care.emr.models.encounter import Encounter
+from care.emr.models.patient import Patient
+from care.users.models import User
 from care_scribe.models.scribe import Scribe
+from care.users.api.serializers.user import FacilityBareMinimumSerializer
 
+class ScribePatientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Patient
+        fields = [
+            "external_id",
+            "name",
+        ]
+class ScribeEncounterSerializer(serializers.ModelSerializer):
+    patient = ScribePatientSerializer(read_only=True)
+    class Meta:
+        model = Encounter
+        fields = [
+            "external_id",
+            "patient",
+        ]
+        
+class ScribeUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "first_name",
+            "username",
+            "last_name",
+            "read_profile_picture_url"
+        ]
+            
+            
+        
 
 class ScribeSerializer(serializers.ModelSerializer):
 
     requested_in_facility_id = serializers.CharField(write_only=True, required=True)
     requested_in_encounter_id = serializers.CharField(write_only=True, required=False)
+    requested_in_facility = FacilityBareMinimumSerializer(read_only=True)
+    requested_in_encounter = ScribeEncounterSerializer(read_only=True)
+    requested_by = ScribeUserSerializer(read_only=True)
 
     class Meta:
         model = Scribe

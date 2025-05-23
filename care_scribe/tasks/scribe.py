@@ -138,6 +138,9 @@ def process_ai_form_fill(external_id):
     for form in ai_form_fills:
         
         form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
+        form.meta["chat_model"] = plugin_settings.SCRIBE_CHAT_MODEL_NAME
+        form.meta["audio_model"] = plugin_settings.SCRIBE_AUDIO_MODEL_NAME
+        form.meta["prompt"] = form.prompt or prompt
         
         logger.info(f"Processing AI form fill {form.external_id}")
 

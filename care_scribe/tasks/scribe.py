@@ -9,12 +9,11 @@ from celery import shared_task
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
-from google.genai import types
-from google import genai
 from google.oauth2 import service_account
 from genkit.ai import Genkit
 from genkit.plugins.google_genai import VertexAI
 from genkit.plugins.compat_oai import OpenAI
+from genkit import types
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 
@@ -125,14 +124,14 @@ Your task is to analyze this information and extract relevant data to structure 
 # Output Format
 
 - Provide all extracted and structured data in a JSON format as per the schema.
-- Include a "__scribe__transcription" field summarizing the insights from the content as text.
+- Include a "__scribe__transcription" field that contains the word to word transcription of the audio or the text content, or a summary of the image content.
 - Make sure to translate everything to English if the content is in a different language.
 
 ```
 {
   "<id>": "value",
   ...
-  "__scribe__transcription": "Your summarized understanding of the content goes here.",
+  "__scribe__transcription": "<transcription>",
 }
 ```
 
@@ -163,6 +162,12 @@ def process_ai_form_fill(external_id):
         model=plugin_settings.SCRIBE_CHAT_MODEL_NAME
     )
     
+    async def generate_content():
+        result = await ai.generate(
+            prompt=prompt,
+            output_format="json"
+        )
+    
     ready_scribes = Scribe.objects.filter(
         external_id=external_id, status=Scribe.Status.READY
     )
@@ -172,7 +177,10 @@ def process_ai_form_fill(external_id):
     for scribe in ready_scribes:
         
         scribe.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
-        
+        scribe.meta["chat_model"] = plugin_settings.SCRIBE_CHAT_MODEL_NAME
+        scribe.meta["audio_model"] = plugin_settings.SCRIBE_AUDIO_MODEL_NAME
+        scribe.meta["prompt"] = scribe.prompt or prompt
+
         logger.info(f"Processing AI form fill {scribe.external_id}")
 
         if plugin_settings.SCRIBE_API_PROVIDER == 'google':
@@ -182,8 +190,8 @@ def process_ai_form_fill(external_id):
                     role="user",
                     parts=[
                         types.Part.from_text(text=
-                            form.prompt or prompt.replace(
-                                "{form_schema}", json.dumps(form.form_data, indent=2)
+                            scribe.prompt or prompt.replace(
+                                "{form_schema}", json.dumps(scribe.form_data, indent=2)
                             )
                         )
                     ]
@@ -205,14 +213,21 @@ def process_ai_form_fill(external_id):
 
         user_contents = []
 
-        # In case text support is needed
-        # if form.text:
-        #     user_contents.append(
-        #         {
-        #             "type": "text",
-        #             "text": form.text
-        #         }
-        #     )
+        if form.text:
+            if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+                messages.append(types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=form.text)
+                    ]
+                ))
+            else:
+                user_contents.append(
+                    {
+                        "type": "text",
+                        "text": form.text
+                    }
+                )
 
         try:
             logger.info(f"Generating transcript for AI form fill {form.external_id}")
@@ -262,14 +277,6 @@ def process_ai_form_fill(external_id):
             else:
                 transcript = form.transcript
 
-            if transcript != "":
-                user_contents.append(
-                    {
-                        "type": "text",
-                        "text": transcript
-                    }
-                )
-
             document_file_objects = ScribeFile.objects.filter(
                     external_id__in=form.document_file_ids
             )
@@ -307,6 +314,22 @@ def process_ai_form_fill(external_id):
                             }
                         }
                     )
+                    
+            if transcript != "":
+                if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+                    messages.append(types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_text(text=transcript)
+                        ]
+                    ))
+                else:
+                    user_contents.append(
+                        {
+                            "type": "text",
+                            "text": transcript
+                        }
+                    )
 
 
             logger.info(f"Generating AI form fill {form.external_id}")
@@ -332,8 +355,12 @@ def process_ai_form_fill(external_id):
                 ai_response_json = ai_response.text
                 
                 completion_time = perf_counter() - completion_start_time
-
-                form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
+                
+                try:
+                    form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
+                except Exception as e:
+                    logger.error(f"Error parsing Gemini AI response as JSON. Response: {ai_response_json}.\n\n Completion ID: {ai_response.response_id}")
+                    raise e
                 
                 form.meta["completion_id"] = ai_response.response_id
                 form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count

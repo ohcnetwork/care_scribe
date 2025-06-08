@@ -3,6 +3,7 @@ import json
 import logging
 import io
 import os
+import textwrap
 from time import perf_counter
 
 from celery import shared_task
@@ -15,6 +16,7 @@ from google import genai
 from google.oauth2 import service_account
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -24,138 +26,220 @@ AiClient = None
 def ai_client():
     global AiClient
     if AiClient is None:
-        if plugin_settings.SCRIBE_API_PROVIDER == 'azure':
+        if plugin_settings.SCRIBE_API_PROVIDER == "azure":
             AiClient = AzureOpenAI(
                 api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
                 api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
-                azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT
+                azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT,
             )
-        elif plugin_settings.SCRIBE_API_PROVIDER == 'openai':
+        elif plugin_settings.SCRIBE_API_PROVIDER == "openai":
             AiClient = OpenAI(
                 api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
             )
 
-        elif plugin_settings.SCRIBE_API_PROVIDER == 'google':
+        elif plugin_settings.SCRIBE_API_PROVIDER == "google":
             credentials = None
             b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
-            
+
             if b64_credentials:
                 print("Using base64 credentials")
                 info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
-                credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+                credentials = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
                 print(credentials)
             else:
                 print("Using file credentials")
-                
+
             AiClient = genai.Client(
                 vertexai=True,
                 project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
                 location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
-                credentials=credentials
+                credentials=credentials,
             )
 
         else:
-            raise Exception('Invalid API_PROVIDER in plugin_settings')
+            raise Exception("Invalid API_PROVIDER in plugin_settings")
     return AiClient
 
 
-prompt = """
-You will be provided with details of a patient's encounter in the form of text, audio, or visual content. 
-Your task is to analyze this information and extract relevant data to structure it according to a predefined JSON schema.
+prompt = textwrap.dedent(
+    """
+    You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the tool with that data.
 
-- Analyze data from text, audio, and images while ensuring all relevant information is extracted thoroughly.
-- Adhere strictly to the predefined JSON schema, ensuring the extracted data is accurately structured.
-- When using the schema, if a field cannot be populated due to missing data, exclude the field entirely from the output.
-- Do not make assumptions or fill in data unless it is explicitly stated in the content.
-- When decimals are provided for fields requiring integers, use the default value specified in the schema.
-- If data is "entered in error", exclude it from the output.
-- If the "current" data is array formatted, update ONLY when the user specifies. Avoid modifying existing data unless instructed.
-- You have to make sure that all data you read from the content is included as per the schema. 
-  If data does not fit into the schema, put it under the other details field if present. If not, exclude it.
-- If data contains medical terms with their codes, example : A32Q Brain Hemorrhage, you can safely ignore the code and only keep the term.
-- Append any observations or understanding derived from the analysis under the key "__scribe__transcription" in the JSON output.
-- If the schema suggests a field to not be optional (i.e. the field key does not end with a "?"), ensure that the field is populated with the correct data type as per the schema.
-  If you are unable to figure out the correct data type, use the first value from the schema as a default.
+    Rules:
+        •	Extract only confirmed data. Omit anything uncertain or missing.
+        •	Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
+        •	For required fields, include only if data is available.
+        •	Don't guess, assume, or include data marked “entered in error.”
+        •	If relevant info doesn't fit the schema but other_details exists, put it there.
+        •	Don't mutate existing data in array fields marked as “current” unless user asks.
+        •	After mapping, call the tool with:
+        •	All valid fields
+        •	"__scribe__transcription": the original text / transcript / image summary (in English)
 
-# Steps
+    Important:
+        •	Do not return JSON or any output—only call the tool.
+        •	Translate non-English content to English before calling the tool.
 
-1. **Content Analysis**: Carefully analyze the provided content (text, audio, or images) to identify and extract all relevant data.
-   
-2. **Schema Adherence**: Structure the extracted data according to the provided JSON schema, ensuring compliance with format requirements.
+    ## Form
 
-3. **Data Exclusion**: If certain fields cannot be populated due to absence of data, exclude them. Do not guess or assume any information.
-
-4. **Extra Data Handling**: If there is data that does not fit into the schema, put it under the other details field if present. If not, exclude it.
-
-5. **Array Data Handling**: Treat "current" structured data according to user instructions, avoiding unwanted modifications.
-
-6. **Transcription Key Addition**: Conclude analysis by appending a summarized understanding of the content under "__scribe__transcription" in the output.
-
-# Existing data
-
-{form_schema}
-
-# Output Format
-
-- Provide all extracted and structured data in a JSON format as per the schema.
-- Include a "__scribe__transcription" field that contains the word to word transcription of the audio or the text content, or a summary of the image content.
-- Make sure to translate everything to English if the content is in a different language.
-
-```
-{
-  "<id>": "value",
-  ...
-  "__scribe__transcription": "<transcription>",
-}
-```
-
-example: 
-
-````
-{
-    "0" : 34,
-    "1" : "CRITICAL".
-    "__scribe__transcription": "The patient is in critical condition and requires immediate attention. Their SPO2 is 34",
-}
-```
-
-# Notes
-
-- Ensure no assumptions are made beyond what is explicitly stated in the content inputs.
-- Prioritize adherence to the predefined schema for accuracy in representation.
-- Ensure every bit of content (text, audio, image) is thoroughly read and understood before being omitted from the JSON response.
+    {form_schema}
 """
+)
 
 
 @shared_task
 def process_ai_form_fill(external_id):
-    ai_form_fills = Scribe.objects.filter(
-        external_id=external_id, status=Scribe.Status.READY
-    )
+    ai_form_fills = Scribe.objects.filter(external_id=external_id, status=Scribe.Status.READY)
 
     initiation_time = perf_counter()
 
     for form in ai_form_fills:
-        
+
         form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
         form.meta["chat_model"] = plugin_settings.SCRIBE_CHAT_MODEL_NAME
         form.meta["audio_model"] = plugin_settings.SCRIBE_AUDIO_MODEL_NAME
-        form.meta["prompt"] = form.prompt or prompt
-        
-        logger.info(f"Processing AI form fill {form.external_id}")
 
-        if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+        function = {
+            "name": "process_ai_form_fill",
+            "description": "Process AI form fill",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "__scribe__transcription": {
+                        "type": "string",
+                        "description": "The transcription of the audio or text content, or a summary of the image content.",
+                    }
+                },
+                "additionalProperties": False,
+                "required": ["__scribe__transcription"],
+            },
+        }
+
+        def remove_keys(obj, keys_to_remove):
+            if isinstance(obj, dict):
+                return {k: remove_keys(v, keys_to_remove) for k, v in obj.items() if k not in keys_to_remove}
+            elif isinstance(obj, list):
+                return [remove_keys(item, keys_to_remove) for item in obj]
+            else:
+                return obj
+
+        def update_required_fields(schema: dict) -> dict:
+            """
+            Recursively returns a new schema object where each object type's 'required'
+            field includes all keys in its 'properties'. The original schema is not mutated.
+            """
+            if not isinstance(schema, dict):
+                return schema
+
+            schema = copy.deepcopy(schema)
+
+            if schema.get("type") == "object" and "properties" in schema:
+                updated_properties = {}
+                for key, value in schema["properties"].items():
+                    updated_properties[key] = update_required_fields(value)
+                schema["properties"] = updated_properties
+                schema["required"] = list(updated_properties.keys())
+
+            elif schema.get("type") == "array" and "items" in schema:
+                schema["items"] = update_required_fields(schema["items"])
+
+            for keyword in ["anyOf", "oneOf", "allOf"]:
+                if keyword in schema:
+                    schema[keyword] = [update_required_fields(sub) for sub in schema[keyword]]
+            return schema
+
+        def fill_missing_types(schema):
+            """
+            Recursively returns a new schema with any empty properties filled with 'type': 'string'
+            to satisfy OpenAI's schema requirements.
+            """
+            if not isinstance(schema, dict):
+                return schema
+
+            schema = copy.deepcopy(schema)
+
+            # Fix properties of objects
+            if schema.get("type") == "object" and "properties" in schema:
+                schema["properties"] = {key: fill_missing_types(value) for key, value in schema["properties"].items()}
+
+            # Fix arrays
+            elif schema.get("type") == "array" and "items" in schema:
+                schema["items"] = fill_missing_types(schema["items"])
+
+            # Fix anyOf / oneOf / allOf
+            for keyword in ["anyOf", "oneOf", "allOf"]:
+                if keyword in schema:
+                    schema[keyword] = [fill_missing_types(sub) for sub in schema[keyword]]
+
+            # Fix missing type at the current node
+            if "type" not in schema and "properties" not in schema and "items" not in schema:
+                schema["type"] = "string"
+
+            return schema
+
+        existing_data_prompt = ""
+
+        for qn in form.form_data:
+
+            existing_data_prompt += textwrap.dedent(
+                f"""
+            ## {qn.get("title", "Untitled Questionnaire")}
+            {qn.get("description", "")}
+            \n
+            """
+            )
+
+            for fd in qn["fields"]:
+                schema = fd.get("schema", {})
+                id = "FIELD_" + fd.get("id", "")
+
+                keys_to_remove = {"$schema", "const", "$ref"}
+                if plugin_settings.SCRIBE_API_PROVIDER != "openai":
+                    keys_to_remove.add("additionalProperties")
+                schema = remove_keys(schema, keys_to_remove)
+
+                if fd.get("options", None) is not None:
+                    if schema.get("type") == "array":
+                        schema["items"] = {
+                            "enum": [op["id"] for op in fd["options"]],
+                            **schema.get("items", {}),
+                        }
+                    else:
+                        schema["enum"] = [op["id"] for op in fd["options"]]
+
+                function["parameters"]["properties"][id] = schema
+
+                existing_data_prompt += textwrap.dedent(
+                    f"""
+                ID:{id} - {fd.get('friendlyName', '')}
+                Type: {schema.get('type', 'unknown')}
+                {"Options: " + ", ".join(schema.get('options', [])) if 'options' in schema else ''}
+                Current Value: {fd.get('current', '')}\n
+                """
+                )
+
+        form.meta["function"] = function
+
+        if plugin_settings.SCRIBE_API_PROVIDER == "openai":
+            function = {
+                **function,
+                "parameters": fill_missing_types(update_required_fields(function["parameters"])),
+            }
+
+        logger.info(f"=== Processing AI form fill {form.external_id} ===")
+
+        form.meta["prompt"] = form.prompt or prompt.replace("{form_schema}", existing_data_prompt)
+
+        if plugin_settings.SCRIBE_API_PROVIDER == "google":
 
             messages = [
                 types.Content(
                     role="user",
                     parts=[
-                        types.Part.from_text(text=
-                            form.prompt or prompt.replace(
-                                "{form_schema}", json.dumps(form.form_data, indent=2)
-                            )
-                        )
-                    ]
+                        types.Part.from_text(text=form.prompt or prompt.replace("{form_schema}", existing_data_prompt))
+                    ],
                 )
             ]
 
@@ -163,72 +247,62 @@ def process_ai_form_fill(external_id):
             messages = [
                 {
                     "role": "system",
-                    "content": [{
-                        "type" : "text",
-                        "text": form.prompt or prompt.replace(
-                            "{form_schema}", json.dumps(form.form_data, indent=2)
-                        ),
-                    }]
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": form.prompt or prompt.replace("{form_schema}", existing_data_prompt),
+                        }
+                    ],
                 },
             ]
 
         user_contents = []
 
         if form.text:
-            if plugin_settings.SCRIBE_API_PROVIDER == 'google':
-                messages.append(types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=form.text)
-                    ]
-                ))
+            if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                messages.append(types.Content(role="user", parts=[types.Part.from_text(text=form.text)]))
             else:
-                user_contents.append(
-                    {
-                        "type": "text",
-                        "text": form.text
-                    }
-                )
+                user_contents.append({"type": "text", "text": form.text})
 
         try:
-            logger.info(f"Generating transcript for AI form fill {form.external_id}")
             form.status = Scribe.Status.GENERATING_TRANSCRIPT
             form.save()
-            
+
             transcript = ""
             if not form.transcript:
-                audio_file_objects = ScribeFile.objects.filter(
-                    external_id__in=form.audio_file_ids
-                )
+                audio_file_objects = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
 
                 logger.info(f"Audio file objects: {audio_file_objects}")
 
                 for audio_file_object in audio_file_objects:
                     _, audio_file_data = audio_file_object.file_contents()
-                    format = audio_file_object.internal_name.split('.')[-1]                    
+                    format = audio_file_object.internal_name.split(".")[-1]
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file." + format
 
-                    if plugin_settings.SCRIBE_API_PROVIDER == 'google':
-                        messages.append(types.Content(
-                            role="user",
-                            parts=[
-                                types.Part.from_text(text="Audio File:"),
-                                types.Part.from_bytes(
-                                    data=audio_file_data,
-                                    mime_type="audio/" + format,
-                                )
-                            ]
-                        ))
-                        
+                    if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                        messages.append(
+                            types.Content(
+                                role="user",
+                                parts=[
+                                    types.Part.from_text(text="Audio File:"),
+                                    types.Part.from_bytes(
+                                        data=audio_file_data,
+                                        mime_type="audio/" + format,
+                                    ),
+                                ],
+                            )
+                        )
+
                     else:
+                        logger.info(f"=== Generating transcript for AI form fill {form.external_id} ===")
 
                         transcription = ai_client().audio.translations.create(
                             model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer
                         )
                         transcript += transcription.text
                         logger.info(f"Transcript: {transcript}")
-                        
+
                         transcription_time = perf_counter() - initiation_time
                         form.meta["transcription_time"] = transcription_time
                         form.save()
@@ -238,14 +312,14 @@ def process_ai_form_fill(external_id):
             else:
                 transcript = form.transcript
 
-            document_file_objects = ScribeFile.objects.filter(
-                    external_id__in=form.document_file_ids
-            )
-            logger.info(f"Document file objects: {document_file_objects}")
+            document_file_objects = ScribeFile.objects.filter(external_id__in=form.document_file_ids)
+            logger.info(f"=== Document file objects: {document_file_objects} ===")
             if document_file_objects.count() > 0:
-                
+
                 # Check if Facility or User has OCR ENABLED
-                facility_has_ocr_flag = FacilityFlag.check_facility_has_flag(form.requested_in_facility.id, "SCRIBE_OCR_ENABLED")
+                facility_has_ocr_flag = FacilityFlag.check_facility_has_flag(
+                    form.requested_in_facility.id, "SCRIBE_OCR_ENABLED"
+                )
                 user_has_ocr_flag = UserFlag.check_user_has_flag(form.requested_by.id, "SCRIBE_OCR_ENABLED")
 
                 if not (user_has_ocr_flag or facility_has_ocr_flag):
@@ -253,111 +327,146 @@ def process_ai_form_fill(external_id):
 
             for document_file_object in document_file_objects:
                 _, document_file_data = document_file_object.file_contents()
-                format = document_file_object.internal_name.split('.')[-1]
-                encoded_string = base64.b64encode(document_file_data).decode('utf-8')
+                format = document_file_object.internal_name.split(".")[-1]
+                encoded_string = base64.b64encode(document_file_data).decode("utf-8")
 
-                if plugin_settings.SCRIBE_API_PROVIDER == 'google':
-                    messages.append(types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_bytes(
-                                data=document_file_data,
-                                mime_type="image/" + format,
-                            )
-                        ]
-                    ))
+                if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                    messages.append(
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_bytes(
+                                    data=document_file_data,
+                                    mime_type="image/" + format,
+                                )
+                            ],
+                        )
+                    )
                 else:
                     user_contents.append(
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/{format};base64,{encoded_string}"
-                            }
+                            "image_url": {"url": f"data:image/{format};base64,{encoded_string}"},
                         }
                     )
-                    
+
             if transcript != "":
-                if plugin_settings.SCRIBE_API_PROVIDER == 'google':
-                    messages.append(types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_text(text=transcript)
-                        ]
-                    ))
+                if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                    messages.append(types.Content(role="user", parts=[types.Part.from_text(text=transcript)]))
                 else:
-                    user_contents.append(
-                        {
-                            "type": "text",
-                            "text": transcript
-                        }
-                    )
+                    user_contents.append({"type": "text", "text": transcript})
 
-
-            logger.info(f"Generating AI form fill {form.external_id}")
+            logger.info(f"=== Generating AI form fill {form.external_id} ===")
             form.status = Scribe.Status.GENERATING_AI_RESPONSE
             form.save()
-            
+
             completion_start_time = perf_counter()
 
-            if plugin_settings.SCRIBE_API_PROVIDER == 'google':
+            logger.info("=== Function Call ===")
+            logger.info(json.dumps(function, indent=2))
+            logger.info("=== End of Function Call ===")
 
-                print(messages)
-                
+            if plugin_settings.SCRIBE_API_PROVIDER == "google":
+
+                text_messages_to_print = []
+                for msg_content in messages:
+                    is_text_only_message = True
+                    for part in msg_content.parts:
+                        # If inline_data is present, it's an audio or image part
+                        if part.inline_data is not None:
+                            is_text_only_message = False
+                            break
+                    if is_text_only_message:
+                        text_messages_to_print.append(msg_content)
+                logger.info("=== Messages ===")
+                logger.info("\n\n".join([str(msg) for msg in text_messages_to_print]))
+                logger.info("=== End of Messages ===")
+
                 ai_response = ai_client().models.generate_content(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     contents=messages,
                     config=types.GenerateContentConfig(
                         temperature=0,
                         max_output_tokens=8192,
-                        response_mime_type="application/json",
-                    )
+                        tools=[types.Tool(function_declarations=[function])],
+                    ),
                 )
-
-                ai_response_json = ai_response.text
-                
-                completion_time = perf_counter() - completion_start_time
-                
                 try:
-                    form.transcript = json.loads(ai_response_json).get("__scribe__transcription", "")
+
+                    if ai_response.candidates[0].content.parts[0].function_call:
+                        function_call = ai_response.candidates[0].content.parts[0].function_call
+                        logger.info(f"Function to call: {function_call.name}")
+                        ai_response_json = function_call.args
+                    else:
+                        logger.info("No function call found in the response.")
+                        logger.info(ai_response.text)
+                        ai_response_json = {"__scribe__transcription": ai_response.text}
                 except Exception as e:
-                    logger.error(f"Error parsing Gemini AI response as JSON. Response: {ai_response_json}.\n\n Completion ID: {ai_response.response_id}")
+                    logger.error(f"Response: {ai_response}")
                     raise e
-                
+
+                ai_response_cleaned = {}
+                for key, value in ai_response_json.items():
+                    if key.startswith("FIELD_"):
+                        id = key[6:]  # Remove "FIELD_" prefix
+                        ai_response_cleaned[id] = value
+                    if key == "__scribe__transcription":
+                        ai_response_cleaned["__scribe__transcription"] = value
+
+                ai_response_json = ai_response_cleaned
+
+                completion_time = perf_counter() - completion_start_time
+
+                form.transcript = ai_response_json["__scribe__transcription"]
+
                 form.meta["completion_id"] = ai_response.response_id
                 form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
                 form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
                 form.meta["completion_time"] = completion_time
-            
+
             else:
 
-                messages.append({
-                    "role": "user",
-                    "content":user_contents
-                })
+                messages.append({"role": "user", "content": user_contents})
 
-                print(messages)
+                logger.info(messages)
 
                 # Process the transcript with Ayushma
                 ai_response = ai_client().chat.completions.create(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
-                    response_format={"type": "json_object"},
                     max_tokens=10000,
                     temperature=0,
-                    messages=messages
+                    messages=messages,
+                    tools=[{"type": "function", "function": {**function, "strict": True}}],
                 )
-                response = ai_response.choices[0].message
-                
-                if response.content == None:
-                    form.status = Scribe.Status.REFUSED
-                    form.save()
-                    continue
 
-                ai_response_json = response.content
+                try:
+                    if ai_response.choices[0].message.tool_calls:
+                        function_call = ai_response.choices[0].message.tool_calls[0]
+                        logger.info(f"Function to call: {function_call.function.name}")
+                        ai_response_json = json.loads(function_call.function.arguments)
+                    else:
+                        logger.info("No function call found in the response.")
+                        logger.info(ai_response.choices[0].message.content)
+                        ai_response_json = {"__scribe__transcription": ai_response.choices[0].message.content}
+                except Exception as e:
+                    logger.error(f"Response: {ai_response}")
+                    raise e
+
+                ai_response_cleaned = {}
+                for key, value in ai_response_json.items():
+                    if key.startswith("FIELD_"):
+                        id = key[6:]  # Remove "FIELD_" prefix
+                        ai_response_cleaned[id] = value
+                    if key == "__scribe__transcription":
+                        ai_response_cleaned["__scribe__transcription"] = value
+
+                ai_response_json = ai_response_cleaned
+
                 form.meta["completion_id"] = ai_response.id
                 form.meta["completion_input_tokens"] = ai_response.usage.prompt_tokens
                 form.meta["completion_output_tokens"] = ai_response.usage.completion_tokens
                 form.meta["completion_time"] = perf_counter() - completion_start_time
-                
+
             logger.info(f"AI response: {ai_response_json}")
 
             # Save AI response to the form

@@ -8,34 +8,45 @@ from django.db import models
 User = get_user_model()
 
 form_data_schema = {
-    "type": "array",
+    "type" : "array",
     "items": {
-        "type": "object",
+        "type" : "object",
         "properties": {
-            "friendlyName": {"type": "string"},
-            "id": {"type": "string"},
-            "current": {"type": ["number","string","boolean","object","array", "null"]},
-            "description": {"type": "string"},
-            "type": {"type": "string"},
-            "example": {"type": "string"},
-            "options": {
+            "title" : {"type": "string"},
+            "description" : {"type": "string"},
+            "fields" : {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "id": {
-                            "anyOf": [
-                                {"type": "integer"},
-                                {"type": "string"},
-                            ]
+                        "friendlyName": {"type": "string"},
+                        "id": {"type": "string"},
+                        "current": {"type": ["number","string","boolean","object","array", "null"]},
+                        # "description": {"type": "string"},
+                        "type": {"type": "string"},
+                        # "example": {"type": "string"},
+                        "options": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "anyOf": [
+                                            {"type": "integer"},
+                                            {"type": "string"},
+                                        ]
+                                    },
+                                    "text": {"type": "string"},
+                                },
+                                "required": ["id", "text"],
+                            },
                         },
-                        "text": {"type": "string"},
                     },
-                    "required": ["id", "text"],
+                    "required": ["friendlyName", "id", "type", "current"],
                 },
             },
         },
-        "required": ["friendlyName", "id", "description", "type", "example", "current"],
+        "required": ["title", "fields"],
     },
 }
 
@@ -86,7 +97,9 @@ class Scribe(BaseModel):
     )
     transcript = models.TextField(null=True, blank=True)
     text = models.TextField(null=True, blank=True)
-    ai_response = models.TextField(null=True, blank=True)
+    ai_response = models.JSONField(
+        null=True, blank=True, default=dict
+    )
     status = models.CharField(
         max_length=50, choices=Status.choices, default=Status.CREATED
     )

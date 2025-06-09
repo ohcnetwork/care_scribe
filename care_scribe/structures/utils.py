@@ -7,6 +7,7 @@ class StructuredQuestion(ABC):
     structure: BaseModel
     name: str
     key: str
+    description: str
 
     class Structure(BaseModel, ABC):
         pass
@@ -15,7 +16,7 @@ class StructuredQuestion(ABC):
         pass
 
     @abstractmethod
-    def deserialize(self, data: Any) -> Structure:
+    def deserialize(data: Any) -> Structure:
         pass
 
 

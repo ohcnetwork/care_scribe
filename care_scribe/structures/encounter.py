@@ -21,6 +21,7 @@ class Hospitalization(BaseModel):
 class EncounterStructuredQuestion(StructuredQuestion):
     name = "Encounter"
     key = "encounter"
+    description = "Captures details about the patient's encounter, including status, class, priority, and hospitalization details."
 
     class Structure(BaseModel):
         status: StatusChoices
@@ -67,7 +68,8 @@ class EncounterStructuredQuestion(StructuredQuestion):
             ),
         )
 
-    def deserialize(self, data: dict) -> Structure:
+    @staticmethod
+    def deserialize(data: dict) -> Structure:
         encounter_class = data.get("encounter_class")
         hospitalization = (
             Hospitalization(
@@ -80,7 +82,7 @@ class EncounterStructuredQuestion(StructuredQuestion):
             else None
         )
 
-        return self.Structure(
+        return EncounterStructuredQuestion.Structure(
             status=data.get("encounter_status"),
             encounter_class=encounter_class,
             priority=data.get("encounter_priority"),

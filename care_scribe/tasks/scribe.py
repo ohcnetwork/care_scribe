@@ -1,4 +1,5 @@
 import base64
+import datetime
 import json
 import logging
 import io
@@ -19,17 +20,10 @@ from google.oauth2 import service_account
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 import copy
-import jsonref
-
-from care_scribe.structures.base import ARBITRARY_QUESTION_MAPPINGS
-from care_scribe.structures.encounter import EncounterStructuredQuestion
-from care_scribe.structures.symptoms import SymptomsStructuredQuestion
 
 logger = logging.getLogger(__name__)
 
 AiClient = None
-
-STRUCTURE_MAPPING = {"symptoms": SymptomsStructuredQuestion, "encounter": EncounterStructuredQuestion}
 
 
 def ai_client():
@@ -72,30 +66,6 @@ def ai_client():
     return AiClient
 
 
-prompt = textwrap.dedent(
-    """
-    You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the required tool for the data.
-
-    Rules:
-        •	Extract only confirmed data. Omit anything uncertain or missing.
-        •	Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
-        •	For required fields, include only if data is available.
-        •	Don't guess, assume, or include data marked “entered in error.”
-        •	If relevant info doesn't fit the schema but other_details exists, put it there.
-        •	Don't mutate existing data in array fields marked as “current” unless user asks.
-        •	After filling the form, return the transcription with the original text / transcript / image summary (in English) as __scribe__transcription.
-
-    Important:
-        •	Do not return JSON or any output—only call the tool.
-        •	Translate non-English content to English before calling the tool.
-
-    # Form
-
-    {form_schema}
-"""
-)
-
-
 class Transcription(BaseModel):
     transcription: str = Field(
         ...,
@@ -105,6 +75,32 @@ class Transcription(BaseModel):
 
 @shared_task
 def process_ai_form_fill(external_id):
+    prompt = textwrap.dedent(
+        """
+        You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the required tool for the data.
+
+        Rules:
+            •	Extract only confirmed data. Omit anything uncertain or missing.
+            •	Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
+            •	For required fields, include only if data is available.
+            •	Don't guess, assume, or include data marked “entered in error.”
+            •	If relevant info doesn't fit the schema but other_details exists, put it there.
+            •	Don't mutate existing data in array fields marked as “current” unless user asks.
+            •	After filling the form, return the transcription with the original text / transcript / image summary (in English) as __scribe__transcription.
+
+        Important:
+            •	Do not return JSON or any output—only call the tool.
+            •	Translate non-English content to English before calling the tool.
+        
+        Current Date and Time: {current_date_time}
+
+        # Form
+
+        {form_schema}
+    """
+    )
+    # Get current timezone-aware datetime
+    prompt = prompt.replace("{current_date_time}", datetime.datetime.now().isoformat())
 
     ai_form_fills = Scribe.objects.filter(external_id=external_id, status=Scribe.Status.READY)
 
@@ -129,7 +125,6 @@ def process_ai_form_fill(external_id):
                         "description": "The transcription of the audio or text content, or a summary of the image content.",
                     }
                 },
-                # "additionalProperties": False,
                 "required": ["__scribe__transcription"],
             },
         }
@@ -141,31 +136,6 @@ def process_ai_form_fill(external_id):
                 return [remove_keys(item, keys_to_remove) for item in obj]
             else:
                 return obj
-
-        def update_required_fields(schema: dict) -> dict:
-            """
-            Recursively returns a new schema object where each object type's 'required'
-            field includes all keys in its 'properties'. The original schema is not mutated.
-            """
-            if not isinstance(schema, dict):
-                return schema
-
-            schema = copy.deepcopy(schema)
-
-            if schema.get("type") == "object" and "properties" in schema:
-                updated_properties = {}
-                for key, value in schema["properties"].items():
-                    updated_properties[key] = update_required_fields(value)
-                schema["properties"] = updated_properties
-                schema["required"] = list(updated_properties.keys())
-
-            elif schema.get("type") == "array" and "items" in schema:
-                schema["items"] = update_required_fields(schema["items"])
-
-            for keyword in ["anyOf", "oneOf", "allOf"]:
-                if keyword in schema:
-                    schema[keyword] = [update_required_fields(sub) for sub in schema[keyword]]
-            return schema
 
         def fill_missing_types(schema):
             """
@@ -209,28 +179,7 @@ def process_ai_form_fill(external_id):
 
             for fd in qn["fields"]:
 
-                question_type = fd.get("type", "")
-
-                if question_type in ARBITRARY_QUESTION_MAPPINGS:
-                    schema = jsonref.replace_refs(ARBITRARY_QUESTION_MAPPINGS[question_type].model_json_schema())[
-                        "properties"
-                    ]["value"]
-
-                elif question_type == "structured":
-                    structured_type = fd.get("structuredType", "")
-                    mapped_output[fd.get("id", "")] = STRUCTURE_MAPPING[structured_type]
-                    if structured_type not in STRUCTURE_MAPPING:
-                        raise ValueError(f"Unknown structured type: {structured_type}")
-
-                    schema = jsonref.replace_refs(STRUCTURE_MAPPING[structured_type].ToolStructure.model_json_schema())
-
-                else:
-                    schema = jsonref.replace_refs(ARBITRARY_QUESTION_MAPPINGS["string"].model_json_schema())[
-                        "properties"
-                    ]["value"]
-
-                if fd.get("repeats", False):
-                    schema = {"type": "array", "items": schema}
+                schema = fd.get("schema", {})
 
                 id = "FIELD_" + fd.get("id", "")
 
@@ -255,7 +204,7 @@ def process_ai_form_fill(external_id):
                 ID:{id} - {fd.get('friendlyName', '')}
                 Type: {schema.get('type', 'unknown')}
                 {"Options: " + ", ".join(schema.get('options', [])) if 'options' in schema else ''}
-                Current Value: {fd.get('current', '')}\n
+                Current Value: {fd.get('humanValue', '')}\n
                 """
                 )
 
@@ -264,7 +213,7 @@ def process_ai_form_fill(external_id):
         if plugin_settings.SCRIBE_API_PROVIDER == "openai":
             function = {
                 **function,
-                "parameters": fill_missing_types(update_required_fields(function["parameters"])),
+                "parameters": fill_missing_types(function["parameters"]),
             }
 
         logger.info(f"=== Processing AI form fill {form.external_id} ===")
@@ -464,13 +413,20 @@ def process_ai_form_fill(external_id):
 
                 logger.info(messages)
 
-                # Process the transcript with Ayushma
                 ai_response = ai_client().chat.completions.create(
                     model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
                     max_tokens=10000,
                     temperature=0,
                     messages=messages,
-                    tools=[{"type": "function", "function": {**function, "strict": True}}],
+                    tools=[
+                        {
+                            "type": "function",
+                            "function": {
+                                **function,
+                                "parameters": {**function["parameters"], "additionalProperties": False},
+                            },
+                        }
+                    ],
                 )
 
                 try:

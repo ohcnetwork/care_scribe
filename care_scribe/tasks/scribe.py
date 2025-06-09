@@ -5,9 +5,11 @@ import io
 import os
 import textwrap
 from time import perf_counter
+from typing import Annotated
 
 from celery import shared_task
 from openai import OpenAI, AzureOpenAI
+from pydantic import BaseModel, Field
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
@@ -17,10 +19,17 @@ from google.oauth2 import service_account
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 import copy
+import jsonref
+
+from care_scribe.structures.base import ARBITRARY_QUESTION_MAPPINGS
+from care_scribe.structures.encounter import EncounterStructuredQuestion
+from care_scribe.structures.symptoms import SymptomsStructuredQuestion
 
 logger = logging.getLogger(__name__)
 
 AiClient = None
+
+STRUCTURE_MAPPING = {"symptoms": SymptomsStructuredQuestion, "encounter": EncounterStructuredQuestion}
 
 
 def ai_client():
@@ -65,7 +74,7 @@ def ai_client():
 
 prompt = textwrap.dedent(
     """
-    You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the tool with that data.
+    You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the required tool for the data.
 
     Rules:
         •	Extract only confirmed data. Omit anything uncertain or missing.
@@ -74,28 +83,36 @@ prompt = textwrap.dedent(
         •	Don't guess, assume, or include data marked “entered in error.”
         •	If relevant info doesn't fit the schema but other_details exists, put it there.
         •	Don't mutate existing data in array fields marked as “current” unless user asks.
-        •	After mapping, call the tool with:
-        •	All valid fields
-        •	"__scribe__transcription": the original text / transcript / image summary (in English)
+        •	After filling the form, return the transcription with the original text / transcript / image summary (in English) as __scribe__transcription.
 
     Important:
         •	Do not return JSON or any output—only call the tool.
         •	Translate non-English content to English before calling the tool.
 
-    ## Form
+    # Form
 
     {form_schema}
 """
 )
 
 
+class Transcription(BaseModel):
+    transcription: str = Field(
+        ...,
+        description="The transcription of the audio or text content, or a summary of the image content. (In English)",
+    )
+
+
 @shared_task
 def process_ai_form_fill(external_id):
+
     ai_form_fills = Scribe.objects.filter(external_id=external_id, status=Scribe.Status.READY)
 
     initiation_time = perf_counter()
 
     for form in ai_form_fills:
+
+        mapped_output = {}
 
         form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
         form.meta["chat_model"] = plugin_settings.SCRIBE_CHAT_MODEL_NAME
@@ -112,7 +129,7 @@ def process_ai_form_fill(external_id):
                         "description": "The transcription of the audio or text content, or a summary of the image content.",
                     }
                 },
-                "additionalProperties": False,
+                # "additionalProperties": False,
                 "required": ["__scribe__transcription"],
             },
         }
@@ -185,17 +202,39 @@ def process_ai_form_fill(external_id):
 
             existing_data_prompt += textwrap.dedent(
                 f"""
-            ## {qn.get("title", "Untitled Questionnaire")}
-            {qn.get("description", "")}
-            \n
-            """
+                ## {qn.get("title", "Untitled Questionnaire")}
+                {qn.get("description", "")}
+                """
             )
 
             for fd in qn["fields"]:
-                schema = fd.get("schema", {})
+
+                question_type = fd.get("type", "")
+
+                if question_type in ARBITRARY_QUESTION_MAPPINGS:
+                    schema = jsonref.replace_refs(ARBITRARY_QUESTION_MAPPINGS[question_type].model_json_schema())[
+                        "properties"
+                    ]["value"]
+
+                elif question_type == "structured":
+                    structured_type = fd.get("structuredType", "")
+                    mapped_output[fd.get("id", "")] = STRUCTURE_MAPPING[structured_type]
+                    if structured_type not in STRUCTURE_MAPPING:
+                        raise ValueError(f"Unknown structured type: {structured_type}")
+
+                    schema = jsonref.replace_refs(STRUCTURE_MAPPING[structured_type].ToolStructure.model_json_schema())
+
+                else:
+                    schema = jsonref.replace_refs(ARBITRARY_QUESTION_MAPPINGS["string"].model_json_schema())[
+                        "properties"
+                    ]["value"]
+
+                if fd.get("repeats", False):
+                    schema = {"type": "array", "items": schema}
+
                 id = "FIELD_" + fd.get("id", "")
 
-                keys_to_remove = {"$schema", "const", "$ref"}
+                keys_to_remove = {"$schema", "const", "$ref", "$defs"}
                 if plugin_settings.SCRIBE_API_PROVIDER != "openai":
                     keys_to_remove.add("additionalProperties")
                 schema = remove_keys(schema, keys_to_remove)
@@ -389,6 +428,11 @@ def process_ai_form_fill(external_id):
                         temperature=0,
                         max_output_tokens=8192,
                         tools=[types.Tool(function_declarations=[function])],
+                        tool_config=types.ToolConfig(
+                            function_calling_config=types.FunctionCallingConfig(
+                                mode=types.FunctionCallingConfigMode.AUTO,
+                            )
+                        ),
                     ),
                 )
                 try:
@@ -404,16 +448,6 @@ def process_ai_form_fill(external_id):
                 except Exception as e:
                     logger.error(f"Response: {ai_response}")
                     raise e
-
-                ai_response_cleaned = {}
-                for key, value in ai_response_json.items():
-                    if key.startswith("FIELD_"):
-                        id = key[6:]  # Remove "FIELD_" prefix
-                        ai_response_cleaned[id] = value
-                    if key == "__scribe__transcription":
-                        ai_response_cleaned["__scribe__transcription"] = value
-
-                ai_response_json = ai_response_cleaned
 
                 completion_time = perf_counter() - completion_start_time
 
@@ -452,16 +486,6 @@ def process_ai_form_fill(external_id):
                     logger.error(f"Response: {ai_response}")
                     raise e
 
-                ai_response_cleaned = {}
-                for key, value in ai_response_json.items():
-                    if key.startswith("FIELD_"):
-                        id = key[6:]  # Remove "FIELD_" prefix
-                        ai_response_cleaned[id] = value
-                    if key == "__scribe__transcription":
-                        ai_response_cleaned["__scribe__transcription"] = value
-
-                ai_response_json = ai_response_cleaned
-
                 form.meta["completion_id"] = ai_response.id
                 form.meta["completion_input_tokens"] = ai_response.usage.prompt_tokens
                 form.meta["completion_output_tokens"] = ai_response.usage.completion_tokens
@@ -469,8 +493,24 @@ def process_ai_form_fill(external_id):
 
             logger.info(f"AI response: {ai_response_json}")
 
+            ai_response_cleaned = {}
+            for key, value in ai_response_json.items():
+                if key.startswith("FIELD_"):
+                    id = key[6:]  # Remove "FIELD_" prefix
+                    ai_response_cleaned[id] = value
+                if key == "__scribe__transcription":
+                    ai_response_cleaned["__scribe__transcription"] = value
+
+            for question_id, structure in mapped_output.items():
+                data = ai_response_cleaned.get(question_id, None)
+                if data is None:
+                    logger.warning(f"No data found for question ID {question_id} in AI response.")
+                    continue
+                print(f"Deserializing {question_id} with structure {structure}")
+                ai_response_cleaned[question_id] = structure.deserialize(data).model_dump()
+
             # Save AI response to the form
-            form.ai_response = ai_response_json
+            form.ai_response = ai_response_cleaned
             form.status = Scribe.Status.COMPLETED
             form.save()
 

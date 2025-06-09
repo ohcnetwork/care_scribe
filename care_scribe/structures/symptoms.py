@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, RootModel
 from typing import List, Optional
 from datetime import datetime
 from care.emr.resources.condition.spec import ClinicalStatusChoices, VerificationStatusChoices, SeverityChoices
@@ -32,14 +32,16 @@ class SymptomToolCall(BaseModel):
 class SymptomsStructuredQuestion(StructuredQuestion):
     name = "Symptoms"
     key = "symptoms"
+    description = "Captures details about the patient's symptoms, including clinical status, verification status, severity, onset, and notes."
 
-    class Structure(BaseModel):
-        __root__: List[Symptom]
+    class Structure(RootModel[List[Symptom]]):
+        pass
 
-    class ToolStructure(BaseModel):
-        __root__: List[SymptomToolCall]
+    class ToolStructure(RootModel[List[SymptomToolCall]]):
+        pass
 
-    def deserialize(self, data: list[dict]) -> Structure:
+    @staticmethod
+    def deserialize(data: list[dict]) -> Structure:
         symptoms = []
 
         for item in data:
@@ -59,4 +61,4 @@ class SymptomsStructuredQuestion(StructuredQuestion):
             )
             symptoms.append(symptom)
 
-        return self.Structure(__root__=symptoms)
+        return SymptomsStructuredQuestion.Structure(symptoms)

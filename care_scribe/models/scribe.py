@@ -8,23 +8,28 @@ from django.db import models
 User = get_user_model()
 
 form_data_schema = {
-    "type" : "array",
+    "type": "array",
     "items": {
-        "type" : "object",
+        "type": "object",
         "properties": {
-            "title" : {"type": "string"},
-            "description" : {"type": "string"},
-            "fields" : {
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "fields": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
                         "friendlyName": {"type": "string"},
                         "id": {"type": "string"},
-                        "current": {"type": ["number","string","boolean","object","array", "null"]},
-                        # "description": {"type": "string"},
+                        "current": {"type": ["number", "string", "boolean", "object", "array", "null"]},
                         "type": {"type": "string"},
-                        # "example": {"type": "string"},
+                        "structuredType": {
+                            "anyOf": [
+                                {"type": "string"},
+                                {"type": "null"},
+                            ]
+                        },
+                        "repeats": {"type": "boolean"},
                         "options": {
                             "type": "array",
                             "items": {
@@ -53,24 +58,26 @@ form_data_schema = {
 meta_schema = {
     "type": "object",
     "properties": {
-        "provider" : {
+        "provider": {
             "type": "string",
             "enum": ["google", "openai", "azure"],
         },
         "transcription_time": {"type": "integer"},
-        "completion_output_tokens" : {"type": "integer"},
-        "completion_input_tokens" : {"type": "integer"},
+        "completion_output_tokens": {"type": "integer"},
+        "completion_input_tokens": {"type": "integer"},
         "completion_time": {"type": "integer"},
-        "completion_id" : {"type": "string"},
+        "completion_id": {"type": "string"},
     },
 }
+
 
 def validate_json_schema(value):
     try:
         jsonschema.validate(value, form_data_schema)
     except jsonschema.ValidationError as e:
         raise jsonschema.ValidationError(f"Invalid JSON data: {e}")
-    
+
+
 def validate_json_schema_meta(value):
     try:
         jsonschema.validate(value, meta_schema)
@@ -92,17 +99,11 @@ class Scribe(BaseModel):
     requested_in_facility = models.ForeignKey(Facility, null=True, on_delete=models.SET_NULL)
     requested_in_encounter = models.ForeignKey(Encounter, null=True, on_delete=models.SET_NULL)
 
-    form_data = models.JSONField(
-        validators=[validate_json_schema], null=True, blank=True
-    )
+    form_data = models.JSONField(validators=[validate_json_schema], null=True, blank=True)
     transcript = models.TextField(null=True, blank=True)
     text = models.TextField(null=True, blank=True)
-    ai_response = models.JSONField(
-        null=True, blank=True, default=dict
-    )
-    status = models.CharField(
-        max_length=50, choices=Status.choices, default=Status.CREATED
-    )
+    ai_response = models.JSONField(null=True, blank=True, default=dict)
+    status = models.CharField(max_length=50, choices=Status.choices, default=Status.CREATED)
     prompt = models.TextField(null=True, blank=True)
     meta = models.JSONField(null=True, blank=True, default=dict, validators=[validate_json_schema_meta])
 

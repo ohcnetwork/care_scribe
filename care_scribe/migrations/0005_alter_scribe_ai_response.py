@@ -7,11 +7,11 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('care_scribe', '0004_scribe_meta_scribe_requested_in_encounter'),
+        ("care_scribe", "0004_scribe_meta_scribe_requested_in_encounter"),
     ]
-    
+
     def migrate_ai_responses(apps, schema_editor):
-        Scribe = apps.get_model('care_scribe', 'Scribe')
+        Scribe = apps.get_model("care_scribe", "Scribe")
         for scribe in Scribe.objects.all():
             if isinstance(scribe.ai_response, str):
                 try:
@@ -27,24 +27,28 @@ class Migration(migrations.Migration):
                     scribe.ai_response = {}
             elif not isinstance(scribe.ai_response, dict):
                 scribe.ai_response = {}
+
+            # convert fields to be nested inside a questionnaire
+            if len(scribe.form_data) > 0 and scribe.form_data[0].get("friendlyName", None) is not None:
+                scribe.form_data = [{"title": "Form", "description": "", "fields": scribe.form_data}]
             scribe.save()
-            
+
     def reverse_migrate_ai_responses(apps, schema_editor):
-        Scribe = apps.get_model('care_scribe', 'Scribe')
+        Scribe = apps.get_model("care_scribe", "Scribe")
         for scribe in Scribe.objects.all():
             if isinstance(scribe.ai_response, dict):
                 try:
                     scribe.ai_response = json.dumps(scribe.ai_response)
                 except (TypeError, ValueError):
-                    scribe.ai_response = ''
+                    scribe.ai_response = ""
             else:
-                scribe.ai_response = ''
+                scribe.ai_response = ""
             scribe.save()
 
     operations = [
         migrations.AlterField(
-            model_name='scribe',
-            name='ai_response',
+            model_name="scribe",
+            name="ai_response",
             field=models.JSONField(blank=True, default=dict, null=True),
         ),
         migrations.RunPython(migrate_ai_responses, reverse_code=reverse_migrate_ai_responses),

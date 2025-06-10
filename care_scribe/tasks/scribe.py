@@ -181,7 +181,7 @@ def process_ai_form_fill(external_id):
 
                 schema = fd.get("schema", {})
 
-                id = "FIELD_" + fd.get("id", "")
+                id = fd.get("id", "")
 
                 keys_to_remove = {"$schema", "const", "$ref", "$defs"}
                 if plugin_settings.SCRIBE_API_PROVIDER != "openai":
@@ -449,24 +449,16 @@ def process_ai_form_fill(external_id):
 
             logger.info(f"AI response: {ai_response_json}")
 
-            ai_response_cleaned = {}
-            for key, value in ai_response_json.items():
-                if key.startswith("FIELD_"):
-                    id = key[6:]  # Remove "FIELD_" prefix
-                    ai_response_cleaned[id] = value
-                if key == "__scribe__transcription":
-                    ai_response_cleaned["__scribe__transcription"] = value
-
             for question_id, structure in mapped_output.items():
-                data = ai_response_cleaned.get(question_id, None)
+                data = ai_response_json.get(question_id, None)
                 if data is None:
                     logger.warning(f"No data found for question ID {question_id} in AI response.")
                     continue
                 print(f"Deserializing {question_id} with structure {structure}")
-                ai_response_cleaned[question_id] = structure.deserialize(data).model_dump()
+                ai_response_json[question_id] = structure.deserialize(data).model_dump()
 
             # Save AI response to the form
-            form.ai_response = ai_response_cleaned
+            form.ai_response = ai_response_json
             form.status = Scribe.Status.COMPLETED
             form.save()
 

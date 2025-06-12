@@ -31,6 +31,25 @@ class Migration(migrations.Migration):
             # convert fields to be nested inside a questionnaire
             if len(scribe.form_data) > 0 and scribe.form_data[0].get("friendlyName", None) is not None:
                 scribe.form_data = [{"title": "Form", "description": "", "fields": scribe.form_data}]
+
+            if scribe.meta is not None and isinstance(scribe.meta, dict):
+                scribe.meta = {
+                    "provider": scribe.meta.get("provider", ""),
+                    "chat_model": scribe.meta.get("chat_model", ""),
+                    "audio_model": scribe.meta.get("audio_model", ""),
+                    "iterations": [
+                        {
+                            "function": scribe.meta.get("function", ""),
+                            "prompt": scribe.meta.get("prompt", ""),
+                            "completion_id": scribe.meta.get("completion_id", ""),
+                            "completion_input_tokens": scribe.meta.get("completion_input_tokens", 0),
+                            "completion_output_tokens": scribe.meta.get("completion_output_tokens", 0),
+                            "completion_time": scribe.meta.get("completion_time", 0),
+                            "transcription_time": scribe.meta.get("transcription_time", 0),
+                        }
+                    ],
+                    "error": scribe.meta.get("error", ""),
+                }
             scribe.save()
 
     def reverse_migrate_ai_responses(apps, schema_editor):

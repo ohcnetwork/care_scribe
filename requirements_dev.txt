@@ -19,3 +19,4 @@ django-filter
 openai
 jsonschema
 google-genai
+jsonref

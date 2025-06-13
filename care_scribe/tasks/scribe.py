@@ -390,10 +390,6 @@ def process_ai_form_fill(external_id):
 
                 completion_start_time = perf_counter()
 
-                logger.info("=== Function Call ===")
-                logger.info(json.dumps(function, indent=2))
-                logger.info("=== End of Function Call ===")
-
                 if plugin_settings.SCRIBE_API_PROVIDER == "google":
                     ai_response = ai_client().models.generate_content(
                         model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,

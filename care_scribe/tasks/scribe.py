@@ -64,13 +64,6 @@ def ai_client():
     return AiClient
 
 
-class Transcription(BaseModel):
-    transcription: str = Field(
-        ...,
-        description="The transcription of the audio or text content, or a summary of the image content. (In English)",
-    )
-
-
 @shared_task
 def process_ai_form_fill(external_id):
     prompt = textwrap.dedent(
@@ -78,17 +71,14 @@ def process_ai_form_fill(external_id):
         You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the required tool for the data.
 
         Rules:
-            •	Extract only confirmed data. Omit anything uncertain or missing.
             •	Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
-            •	For required fields, include only if data is available.
             •	Don't guess, assume, or include data marked “entered in error.”
             •	If relevant info doesn't fit the schema but other_details exists, put it there.
-            •	Don't mutate existing data in array fields marked as “current” unless user asks.
             •   ONLY fill in what the user has requested. Do not fill in any other fields. If the user has not requested any fields, do not fill in any fields.
+            •	If an image is provided and it contains multiple information, extract the most relevant information that can be used to fill the form.
             •	After filling the form, return the transcription with the original text / transcript / image summary (in English) as __scribe__transcription.
 
         Important:
-            •	Do not return JSON or any output—only call the tool.
             •	Translate non-English content to English before calling the tool.
         
         Current Date and Time: {current_date_time}
@@ -461,6 +451,9 @@ def process_ai_form_fill(external_id):
                     except Exception as e:
                         logger.error(f"Response: {ai_response}")
                         raise e
+
+                    if not form.transcript and not transcript:
+                        form.transcript = ai_response_json["__scribe__transcription"]
 
                     this_iteration["completion_id"] = ai_response.id
                     this_iteration["completion_input_tokens"] = ai_response.usage.prompt_tokens

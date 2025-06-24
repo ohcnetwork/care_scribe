@@ -240,10 +240,10 @@ def process_ai_form_fill(external_id):
 
                     existing_data_prompt += textwrap.dedent(
                         f"""
-                    ### {fd.get('friendlyName', '')}
-                    {"Options: " + ", ".join(schema.get('options', [])) if 'options' in schema else ''}
-                    Current Value: {fd.get('humanValue', '')}\n
-                    """
+                        ### {fd.get('friendlyName', '')}
+                        {"Options: " + ", ".join(schema.get('options', [])) if 'options' in schema else ''}
+                        Current Value: {fd.get('humanValue', '')}\n
+                        """
                     )
 
             if plugin_settings.SCRIBE_API_PROVIDER == "openai":

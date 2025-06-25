@@ -8,6 +8,7 @@ import textwrap
 from time import perf_counter
 from celery import shared_task
 from openai import OpenAI, AzureOpenAI
+from pydantic import BaseModel, Field
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings

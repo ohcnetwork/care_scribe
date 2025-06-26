@@ -37,11 +37,12 @@ class ScribeUserSerializer(serializers.ModelSerializer):
 
 class ScribeSerializer(serializers.ModelSerializer):
 
-    requested_in_facility_id = serializers.CharField(write_only=True, required=True)
+    requested_in_facility_id = serializers.CharField(write_only=True, required=False)
     requested_in_encounter_id = serializers.CharField(write_only=True, required=False)
     requested_in_facility = FacilityBareMinimumSerializer(read_only=True)
     requested_in_encounter = ScribeEncounterSerializer(read_only=True)
     requested_by = ScribeUserSerializer(read_only=True)
+    processed_ai_response = serializers.JSONField(write_only=True, required=False)
 
     audio = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
@@ -66,6 +67,7 @@ class ScribeSerializer(serializers.ModelSerializer):
             "created_date",
             "modified_date",
             "documents",
+            "processed_ai_response",
         ]
         read_only_fields = [
             "external_id",
@@ -81,15 +83,21 @@ class ScribeSerializer(serializers.ModelSerializer):
     def save(self, **kwargs):
         facility_id = self.validated_data.get("requested_in_facility_id", None)
         encounter_id = self.validated_data.get("requested_in_encounter_id", None)
-        self.validated_data["requested_in_facility"] = Facility.objects.filter(external_id=facility_id).first()
-        self.validated_data["requested_in_encounter"] = Encounter.objects.filter(external_id=encounter_id).first()
+        processed_ai_response = self.validated_data.pop("processed_ai_response", None)
+
+        if facility_id:
+            self.validated_data["requested_in_facility"] = Facility.objects.filter(external_id=facility_id).first()
+        if encounter_id:
+            self.validated_data["requested_in_encounter"] = Encounter.objects.filter(external_id=encounter_id).first()
+        if processed_ai_response:
+            self.validated_data["meta"] = {**self.instance.meta, "processed_ai_response": processed_ai_response}
 
         # TODO : Check if the user has access to the facility. This is not a very huge concern rn, but still should be done
 
-        if not self.validated_data["requested_in_facility"]:
+        if (self.instance and not self.instance.requested_in_facility) and not self.validated_data["requested_in_facility"]:
             raise serializers.ValidationError({"requested_in_facility": "Invalid facility ID"})
 
-        if not self.validated_data["requested_in_encounter"]:
+        if (self.instance and not self.instance.requested_in_encounter) and not self.validated_data["requested_in_encounter"]:
             raise serializers.ValidationError({"requested_in_encounter": "Invalid encounter ID"})
 
         self.validated_data.pop("requested_in_facility_id", None)

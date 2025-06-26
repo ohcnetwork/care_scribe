@@ -6,8 +6,6 @@ import io
 import os
 import textwrap
 from time import perf_counter
-from typing import Annotated
-
 from celery import shared_task
 from openai import OpenAI, AzureOpenAI
 from pydantic import BaseModel, Field
@@ -20,6 +18,7 @@ from google.oauth2 import service_account
 from care.users.models import UserFlag
 from care.facility.models.facility_flag import FacilityFlag
 import copy
+from care_scribe.utils import chunk_questionnaires
 
 logger = logging.getLogger(__name__)
 
@@ -98,59 +97,13 @@ def process_ai_form_fill(external_id):
         iterations = []
 
         if plugin_settings.SCRIBE_API_PROVIDER == "google":
-            print("Using Google as provider, will chunk form data")
-
-            current_chunk = []
-            current_field_count = 0
-            max_fields = 20
-
-            for questionnaire_index, questionnaire in enumerate(form.form_data):
-                title = questionnaire["title"]
-                description = questionnaire["description"]
-                fields = questionnaire["fields"]
-
-                print(f"\nProcessing questionnaire {questionnaire_index}: '{title}' with {len(fields)} fields")
-
-                i = 0
-                while i < len(fields):
-                    remaining_capacity = max_fields - current_field_count
-                    take = min(remaining_capacity, len(fields) - i)
-                    field_chunk = fields[i : i + take]
-
-                    if current_field_count == 0:
-                        # Start a new questionnaire section
-                        current_chunk.append({"title": title, "description": description, "fields": field_chunk})
-                        print(f"  -> Starting new chunk with {take} fields")
-                    else:
-                        # Check if we can append to the last questionnaire in the current chunk
-                        last = current_chunk[-1]
-                        if last["title"] == title and last["description"] == description:
-                            last["fields"].extend(field_chunk)
-                            print(f"  -> Appending {take} fields to existing section in current chunk")
-                        else:
-                            current_chunk.append({"title": title, "description": description, "fields": field_chunk})
-                            print(f"  -> Adding new section to current chunk with {take} fields")
-
-                    current_field_count += take
-                    i += take
-
-                    # If we reach max_fields, commit current_chunk and reset
-                    if current_field_count == max_fields:
-                        print(f"  -> Max fields reached, committing chunk with {current_field_count} fields")
-                        iterations.append(current_chunk)
-                        current_chunk = []
-                        current_field_count = 0
-
-            # Add any leftover fields in the last chunk
-            if current_chunk:
-                print(f"Final chunk has {current_field_count} fields, committing.")
-                iterations.append(current_chunk)
-
+            logger.info("Using Google as provider, will chunk form data")
+            iterations = chunk_questionnaires(form.form_data)
         else:
-            print("Using OpenAI/Azure provider, no chunking needed")
+            logger.info("Using OpenAI/Azure provider, no chunking needed")
             iterations = [form.form_data]
 
-        print(len(iterations), "iterations to process for form", form.external_id)
+        logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
 
         form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
         form.meta["chat_model"] = plugin_settings.SCRIBE_CHAT_MODEL_NAME
@@ -193,6 +146,45 @@ def process_ai_form_fill(external_id):
 
             return schema
 
+        def process_fields(fields: list, existing_data_prompt: str, function: dict, depth: int = 0) -> str:
+            indent = "  " * depth
+
+            for fd in fields:
+                if "fields" in fd:
+                    title = fd.get("title", "Untitled Group")
+                    desc = fd.get("description", "")
+                    existing_data_prompt += textwrap.indent(
+                        textwrap.dedent(
+                            f"""
+                            ## {title}
+                            {desc}
+                            """
+                        ),
+                        indent,
+                    )
+                    existing_data_prompt = process_fields(fd["fields"], existing_data_prompt, function, depth + 1)
+                else:  # It's a Field
+                    schema = fd.get("schema", {})
+                    field_id = fd.get("id", "")
+
+                    keys_to_remove = {"$schema", "const", "$ref", "$defs"}
+                    if plugin_settings.SCRIBE_API_PROVIDER != "openai":
+                        keys_to_remove.add("additionalProperties")
+
+                    schema = remove_keys(schema, keys_to_remove)
+                    function["parameters"]["properties"][field_id] = schema
+
+                    options_text = f"Options: {', '.join(schema.get('options', []))}" if "options" in schema else ""
+
+                    field_text = f"""
+                    ### {fd.get('friendlyName', '')}
+                    {options_text}
+                    Current Value: {fd.get('humanValue', '')}\n
+                    """
+                    existing_data_prompt += textwrap.indent(textwrap.dedent(field_text), indent)
+
+            return existing_data_prompt
+
         full_response = {}
         meta_iterations = []
         for iteration in iterations:
@@ -224,27 +216,7 @@ def process_ai_form_fill(external_id):
                     {qn.get("description", "")}
                     """
                 )
-
-                for fd in qn["fields"]:
-
-                    schema = fd.get("schema", {})
-
-                    id = fd.get("id", "")
-
-                    keys_to_remove = {"$schema", "const", "$ref", "$defs"}
-                    if plugin_settings.SCRIBE_API_PROVIDER != "openai":
-                        keys_to_remove.add("additionalProperties")
-                    schema = remove_keys(schema, keys_to_remove)
-
-                    function["parameters"]["properties"][id] = schema
-
-                    existing_data_prompt += textwrap.dedent(
-                        f"""
-                        ### {fd.get('friendlyName', '')}
-                        {"Options: " + ", ".join(schema.get('options', [])) if 'options' in schema else ''}
-                        Current Value: {fd.get('humanValue', '')}\n
-                        """
-                    )
+                existing_data_prompt = process_fields(qn["fields"], existing_data_prompt, function)
 
             if plugin_settings.SCRIBE_API_PROVIDER == "openai":
                 function = {

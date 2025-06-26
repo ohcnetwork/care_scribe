@@ -17,37 +17,52 @@ form_data_schema = {
             "fields": {
                 "type": "array",
                 "items": {
-                    "type": "object",
-                    "properties": {
-                        "friendlyName": {"type": "string"},
-                        "id": {"type": "string"},
-                        "current": {"type": ["number", "string", "boolean", "object", "array", "null"]},
-                        "type": {"type": "string"},
-                        "structuredType": {
-                            "anyOf": [
-                                {"type": "string"},
-                                {"type": "null"},
-                            ]
-                        },
-                        "repeats": {"type": "boolean"},
-                        "options": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "id": {
-                                        "anyOf": [
-                                            {"type": "integer"},
-                                            {"type": "string"},
-                                        ]
-                                    },
-                                    "text": {"type": "string"},
+                    "anyOf": [
+                        {
+                            # Field object
+                            "type": "object",
+                            "properties": {
+                                "friendlyName": {"type": "string"},
+                                "id": {"type": "string"},
+                                "current": {"type": ["number", "string", "boolean", "object", "array", "null"]},
+                                "type": {"type": "string"},
+                                "structuredType": {
+                                    "anyOf": [
+                                        {"type": "string"},
+                                        {"type": "null"},
+                                    ]
                                 },
-                                "required": ["id", "text"],
+                                "repeats": {"type": "boolean"},
+                                "options": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "anyOf": [
+                                                    {"type": "integer"},
+                                                    {"type": "string"},
+                                                ]
+                                            },
+                                            "text": {"type": "string"},
+                                        },
+                                        "required": ["id", "text"],
+                                    },
+                                },
                             },
+                            "required": ["friendlyName", "id", "type", "current"],
                         },
-                    },
-                    "required": ["friendlyName", "id", "type", "current"],
+                        {
+                            # Nested questionnaire object
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "description": {"type": "string"},
+                                "fields": {"$ref": "#/items/properties/fields"},
+                            },
+                            "required": ["title", "fields"],
+                        },
+                    ]
                 },
             },
         },

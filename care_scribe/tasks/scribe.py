@@ -79,7 +79,7 @@ def process_ai_form_fill(external_id):
 
         Important:
             •	Translate non-English content to English before calling the tool.
-        
+
         Current Date and Time: {current_date_time}
 
         # Form
@@ -218,7 +218,7 @@ def process_ai_form_fill(external_id):
                 )
                 existing_data_prompt = process_fields(qn["fields"], existing_data_prompt, function)
 
-            if plugin_settings.SCRIBE_API_PROVIDER == "openai":
+            if plugin_settings.SCRIBE_API_PROVIDER != "google":
                 function = {
                     **function,
                     "parameters": fill_missing_types(function["parameters"]),

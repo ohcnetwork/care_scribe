@@ -45,7 +45,7 @@ def split_fields(fields: List[Union[Field, Questionnaire]], max_fields: int) -> 
     return chunks
 
 
-def chunk_questionnaires(questionnaires: List[Questionnaire], max_fields: int = 20) -> List[Questionnaire]:
+def chunk_questionnaires(questionnaires: List[Questionnaire], max_fields: int = 50) -> List[Questionnaire]:
     all_chunks = []
     for q in questionnaires:
         chunks = split_fields(q["fields"], max_fields)

@@ -67,7 +67,7 @@ def ai_client():
 def process_ai_form_fill(external_id):
     prompt = textwrap.dedent(
         """
-        You'll receive a patient's encounter (text, audio, or image). Extract all valid data per the given form and invoke the required tool for the data.
+        You'll receive a patient's encounter (text, audio, or image). Extract all valid data and invoke the required tool for the data.
 
         Rules:
         • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
@@ -76,7 +76,7 @@ def process_ai_form_fill(external_id):
         • If relevant info doesn't fit the schema but the `other_details` field exists, put it there.
         • ONLY fill in fields that the user has explicitly requested. Leave all other fields empty.
         • Translate non-English content to English before calling the tool.
-        • After filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.
+        • If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.
 
         Notes Handling (very important):
         • ONLY include the `note` field **if** there is additional context that cannot be captured in the `value`.
@@ -86,10 +86,6 @@ def process_ai_form_fill(external_id):
         • If no additional context exists beyond the value, DO NOT add the `note` field at all. This is non-negotiable.
 
         Current Date and Time: {current_date_time}
-
-        # Form
-
-        {form_schema}
     """
     )
     # Get current timezone-aware datetime
@@ -192,7 +188,7 @@ def process_ai_form_fill(external_id):
 
         full_response = {}
         meta_iterations = []
-        for iteration in iterations:
+        for idx, iteration in enumerate(iterations):
             initiation_time = perf_counter()
             this_iteration = {}
 
@@ -210,6 +206,17 @@ def process_ai_form_fill(external_id):
                     "required": ["__scribe__transcription"],
                 },
             }
+
+            if idx > 0:
+                full_response_without_transcription = copy.deepcopy(full_response)
+                full_response_without_transcription.pop("__scribe__transcription", None)
+                prompt = prompt + textwrap.dedent(f"""
+                    \n\nYou have already processed the following data:
+                    {json.dumps(full_response_without_transcription, indent=2)}
+                """)
+
+                del function["parameters"]["properties"]["__scribe__transcription"]
+                function["parameters"]["required"].remove("__scribe__transcription")
 
             existing_data_prompt = ""
 
@@ -231,14 +238,14 @@ def process_ai_form_fill(external_id):
 
             logger.info(f"=== Processing AI form fill {form.external_id} ===")
 
-            this_iteration = {"function": function, "prompt": (form.prompt or prompt).replace("{form_schema}", existing_data_prompt)}
+            this_iteration = {"function": function, "prompt": (form.prompt or prompt)}
 
             if plugin_settings.SCRIBE_API_PROVIDER == "google":
 
                 messages = [
                     types.Content(
                         role="user",
-                        parts=[types.Part.from_text(text=form.prompt or prompt.replace("{form_schema}", existing_data_prompt))],
+                        parts=[types.Part.from_text(text=form.prompt or prompt)],
                     )
                 ]
 
@@ -249,7 +256,7 @@ def process_ai_form_fill(external_id):
                         "content": [
                             {
                                 "type": "text",
-                                "text": form.prompt or prompt.replace("{form_schema}", existing_data_prompt),
+                                "text": form.prompt or prompt,
                             }
                         ],
                     },
@@ -389,7 +396,8 @@ def process_ai_form_fill(external_id):
 
                     completion_time = perf_counter() - completion_start_time
 
-                    form.transcript = ai_response_json["__scribe__transcription"]
+                    if idx == 0:
+                        form.transcript = ai_response_json["__scribe__transcription"]
 
                     this_iteration["completion_id"] = ai_response.response_id
                     this_iteration["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
@@ -429,7 +437,7 @@ def process_ai_form_fill(external_id):
                         logger.error(f"Response: {ai_response}")
                         raise e
 
-                    if not form.transcript and not transcript:
+                    if not form.transcript and not transcript and idx == 0:
                         form.transcript = ai_response_json["__scribe__transcription"]
 
                     this_iteration["completion_id"] = ai_response.id

@@ -292,7 +292,7 @@ def process_ai_form_fill(external_id):
                                     role="user",
                                     parts=[
                                         types.Part.from_text(text="Audio File:"),
-                                        types.Part.from_bytes(
+                                        types.Blob(
                                             data=audio_file_data,
                                             mime_type="audio/" + format,
                                         ),
@@ -371,28 +371,12 @@ def process_ai_form_fill(external_id):
                         config=types.GenerateContentConfig(
                             temperature=0,
                             max_output_tokens=8192,
-                            tools=[types.Tool(function_declarations=[function])],
-                            tool_config=types.ToolConfig(
-                                function_calling_config=types.FunctionCallingConfig(
-                                    mode=types.FunctionCallingConfigMode.ANY,
-                                ),
-                            ),
+                            response_mime_type="application/json",
+                            response_schema=function["parameters"]
                         ),
                     )
 
-                    try:
-
-                        if ai_response.candidates[0].content.parts[0].function_call:
-                            function_call = ai_response.candidates[0].content.parts[0].function_call
-                            logger.info(f"Function to call: {function_call.name}")
-                            ai_response_json = function_call.args
-                        else:
-                            logger.info("No function call found in the response.")
-                            logger.info(ai_response.text)
-                            ai_response_json = {"__scribe__transcription": ai_response.text}
-                    except Exception as e:
-                        logger.error(f"Response: {ai_response}")
-                        raise e
+                    ai_response_json = ai_response.parsed
 
                     completion_time = perf_counter() - completion_start_time
 

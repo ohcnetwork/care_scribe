@@ -71,18 +71,11 @@ def process_ai_form_fill(external_id):
 
         Rules:
         • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
-        • Do not guess, assume, or include data marked “entered in error.”
-        • Omit any data that is not relevant to providing care to the patient.
-        • If relevant info doesn't fit the schema but the `other_details` field exists, put it there.
         • ONLY fill in fields that the user has explicitly requested. Leave all other fields empty.
         • Translate non-English content to English before calling the tool.
         • If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.
 
         Notes Handling (very important):
-        • ONLY include the `note` field **if** there is additional context that cannot be captured in the `value`.
-            - Example: “Patient's SPO2 is 20%, but had spiked to 50% an hour ago” → `value: 20%`, `note: Spiked to 50% an hour ago`
-            - Example: “Patient's SPO2 is 20%” → `value: 20%`, **do not add a `note`**
-        • NEVER duplicate the value in the `note`. If you do so, it will be treated as a **critical failure** in care.
         • If no additional context exists beyond the value, DO NOT add the `note` field at all. This is non-negotiable.
 
         Current Date and Time: {current_date_time}
@@ -208,13 +201,6 @@ def process_ai_form_fill(external_id):
             }
 
             if idx > 0:
-                full_response_without_transcription = copy.deepcopy(full_response)
-                full_response_without_transcription.pop("__scribe__transcription", None)
-                prompt = prompt + textwrap.dedent(f"""
-                    \n\nYou have already processed the following data:
-                    {json.dumps(full_response_without_transcription, indent=2)}
-                """)
-
                 del function["parameters"]["properties"]["__scribe__transcription"]
                 function["parameters"]["required"].remove("__scribe__transcription")
 

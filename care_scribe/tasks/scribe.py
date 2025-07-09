@@ -76,6 +76,10 @@ def process_ai_form_fill(external_id):
         • If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.
 
         Notes Handling (very important):
+        • ONLY include the `note` field **if** there is additional context that cannot be captured in the `value`.
+            - Example: “Patient's SPO2 is 20%, but had spiked to 50% an hour ago” → `value: 20%`, `note: Spiked to 50% an hour ago`
+            - Example: “Patient's SPO2 is 20%” → `value: 20%`, **do not add a `note`**
+        • NEVER duplicate the value in the `note`. If you do so, it will be treated as a **critical failure** in care.
         • If no additional context exists beyond the value, DO NOT add the `note` field at all. This is non-negotiable.
 
         Current Date and Time: {current_date_time}
@@ -91,11 +95,9 @@ def process_ai_form_fill(external_id):
         iterations = []
 
         if plugin_settings.SCRIBE_API_PROVIDER == "google":
-            logger.info("Using Google as provider, will chunk form data")
-            iterations = chunk_questionnaires(form.form_data)
+            iterations = chunk_questionnaires(form.form_data, max_fields=15)
         else:
-            logger.info("Using OpenAI/Azure provider, no chunking needed")
-            iterations = [form.form_data]
+            iterations = chunk_questionnaires(form.form_data, max_fields=50)
 
         logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
 
@@ -200,7 +202,7 @@ def process_ai_form_fill(external_id):
                 },
             }
 
-            if idx > 0:
+            if idx > 0 or (plugin_settings.SCRIBE_API_PROVIDER != "google" and len(form.document_file_ids) == 0):
                 del function["parameters"]["properties"]["__scribe__transcription"]
                 function["parameters"]["required"].remove("__scribe__transcription")
 
@@ -278,7 +280,7 @@ def process_ai_form_fill(external_id):
                                     role="user",
                                     parts=[
                                         types.Part.from_text(text="Audio File:"),
-                                        types.Blob(
+                                        types.Part.from_bytes(
                                             data=audio_file_data,
                                             mime_type="audio/" + format,
                                         ),
@@ -383,26 +385,24 @@ def process_ai_form_fill(external_id):
                         max_tokens=10000,
                         temperature=0,
                         messages=messages,
-                        tools=[
-                            {
-                                "type": "function",
-                                "function": {
-                                    **function,
-                                    "parameters": {**function["parameters"], "additionalProperties": False},
+                        response_format={
+                            "type" : "json_schema",
+                            "json_schema" : {
+                                "name" : function["name"],
+                                "schema" : {
+                                    **function["parameters"],
+                                    "required" : [key for key, value in function["parameters"]["properties"].items()],
+                                    "additionalProperties": False
                                 },
-                            }
-                        ],
+                                "strict" : True,
+                            },
+                        }
                     )
 
                     try:
-                        if ai_response.choices[0].message.tool_calls:
-                            function_call = ai_response.choices[0].message.tool_calls[0]
-                            logger.info(f"Function to call: {function_call.function.name}")
-                            ai_response_json = json.loads(function_call.function.arguments)
-                        else:
-                            logger.info("No function call found in the response.")
-                            logger.info(ai_response.choices[0].message.content)
-                            ai_response_json = {"__scribe__transcription": ai_response.choices[0].message.content}
+                        print(f"AI response: {ai_response.choices[0].message.content}")
+                        ai_response_json = json.loads(ai_response.choices[0].message.content)
+
                     except Exception as e:
                         logger.error(f"Response: {ai_response}")
                         raise e

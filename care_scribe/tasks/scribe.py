@@ -152,9 +152,24 @@ def process_ai_form_fill(external_id):
 
             return schema
 
-        def process_fields(fields: list) -> str:
+        def process_fields(fields: list, existing_data_prompt: str, function: dict, depth: int = 0) -> str:
+            indent = "  " * depth
+
             for fd in fields:
-                if not "fields" in fd:
+                if "fields" in fd:
+                    title = fd.get("title", "Untitled Group")
+                    desc = fd.get("description", "")
+                    existing_data_prompt += textwrap.indent(
+                        textwrap.dedent(
+                            f"""
+                            ## {title}
+                            {desc}
+                            """
+                        ),
+                        indent,
+                    )
+                    existing_data_prompt = process_fields(fd["fields"], existing_data_prompt, function, depth + 1)
+                else:  # It's a Field
                     schema = fd.get("schema", {})
                     field_id = fd.get("id", "")
 
@@ -165,6 +180,17 @@ def process_ai_form_fill(external_id):
                     schema = remove_keys(schema, keys_to_remove)
                     function["parameters"]["properties"][field_id] = schema
 
+                    options_text = f"Options: {', '.join(schema.get('options', []))}" if "options" in schema else ""
+
+                    field_text = f"""
+                    ### {fd.get('friendlyName', '')}
+                    {options_text}
+                    Current Value: {fd.get('humanValue', '')}\n
+                    """
+                    existing_data_prompt += textwrap.indent(textwrap.dedent(field_text), indent)
+
+            return existing_data_prompt
+
         full_response = {}
         meta_iterations = []
         for idx, iteration in enumerate(iterations):
@@ -172,6 +198,8 @@ def process_ai_form_fill(external_id):
             this_iteration = {}
 
             function = {
+                "name": "process_ai_form_fill",
+                "description": "Process AI form fill",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -188,8 +216,17 @@ def process_ai_form_fill(external_id):
                 del function["parameters"]["properties"]["__scribe__transcription"]
                 function["parameters"]["required"].remove("__scribe__transcription")
 
+            existing_data_prompt = ""
+
             for qn in iteration:
-                process_fields(qn["fields"])
+
+                existing_data_prompt += textwrap.dedent(
+                    f"""
+                    ## {qn.get("title", "Untitled Questionnaire")}
+                    {qn.get("description", "")}
+                    """
+                )
+                existing_data_prompt = process_fields(qn["fields"], existing_data_prompt, function)
 
             if api_provider != "google":
                 function = {
@@ -371,7 +408,7 @@ def process_ai_form_fill(external_id):
                         response_format={
                             "type" : "json_schema",
                             "json_schema" : {
-                                "name" : "process_ai_form_fill",
+                                "name" : function["name"],
                                 "schema" : {
                                     **function["parameters"],
                                     "required" : [key for key, value in function["parameters"]["properties"].items()],

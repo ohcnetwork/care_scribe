@@ -121,6 +121,9 @@ class Scribe(BaseModel):
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.CREATED)
     prompt = models.TextField(null=True, blank=True)
     meta = models.JSONField(null=True, blank=True, default=dict, validators=[validate_json_schema_meta])
+    chat_model = models.CharField(max_length=100, null=True, blank=True)
+    audio_model = models.CharField(max_length=100, null=True, blank=True)
+    chat_model_temperature = models.FloatField(null=True, blank=True)
 
     @property
     def audio_file_ids(self):

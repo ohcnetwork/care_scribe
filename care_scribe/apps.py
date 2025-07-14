@@ -12,3 +12,4 @@ class CareScribeConfig(AppConfig):
         FlagRegistry.register(FlagType.FACILITY, "SCRIBE_OCR_ENABLED")
         FlagRegistry.register(FlagType.USER, "SCRIBE_ENABLED")
         FlagRegistry.register(FlagType.USER, "SCRIBE_OCR_ENABLED")
+        FlagRegistry.register(FlagType.USER, "SCRIBE_ADMIN")

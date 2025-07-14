@@ -22,44 +22,40 @@ from care_scribe.utils import chunk_questionnaires
 
 logger = logging.getLogger(__name__)
 
-AiClient = None
 
+def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
+    if provider == "azure":
+        AiClient = AzureOpenAI(
+            api_key=plugin_settings.SCRIBE_AZURE_API_KEY,
+            api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
+            azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT,
+        )
+    elif provider == "openai":
+        AiClient = OpenAI(
+            api_key=plugin_settings.SCRIBE_OPENAI_API_KEY,
+        )
 
-def ai_client():
-    global AiClient
-    if AiClient is None:
-        if plugin_settings.SCRIBE_API_PROVIDER == "azure":
-            AiClient = AzureOpenAI(
-                api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
-                api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
-                azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT,
-            )
-        elif plugin_settings.SCRIBE_API_PROVIDER == "openai":
-            AiClient = OpenAI(
-                api_key=plugin_settings.SCRIBE_PROVIDER_API_KEY,
-            )
+    elif provider == "google":
+        credentials = None
+        b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
 
-        elif plugin_settings.SCRIBE_API_PROVIDER == "google":
-            credentials = None
-            b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
-
-            if b64_credentials:
-                print("Using base64 credentials")
-                info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
-                credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
-                print(credentials)
-            else:
-                print("Using file credentials")
-
-            AiClient = genai.Client(
-                vertexai=True,
-                project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
-                location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
-                credentials=credentials,
-            )
-
+        if b64_credentials:
+            print("Using base64 credentials")
+            info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
+            credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+            print(credentials)
         else:
-            raise Exception("Invalid API_PROVIDER in plugin_settings")
+            print("Using file credentials")
+
+        AiClient = genai.Client(
+            vertexai=True,
+            project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
+            location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
+            credentials=credentials,
+        )
+
+    else:
+        raise Exception("Invalid api provider")
     return AiClient
 
 
@@ -71,7 +67,6 @@ def process_ai_form_fill(external_id):
 
         Rules:
         • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
-        • ONLY fill in fields that the user has explicitly requested. Leave all other fields empty.
         • Translate non-English content to English before calling the tool.
         • If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.
 
@@ -91,19 +86,34 @@ def process_ai_form_fill(external_id):
     ai_form_fills = Scribe.objects.filter(external_id=external_id, status=Scribe.Status.READY)
 
     for form in ai_form_fills:
+        api_provider = plugin_settings.SCRIBE_API_PROVIDER
+        chat_model = plugin_settings.SCRIBE_CHAT_MODEL_NAME
+        audio_model = plugin_settings.SCRIBE_AUDIO_MODEL_NAME
+        temperature = 0
+        if form.chat_model:
+            api_provider = form.chat_model.split("/")[0]
+            if api_provider == "openai" and plugin_settings.SCRIBE_AZURE_API_KEY is not "":
+                api_provider = "azure"
+            chat_model = form.chat_model.split("/")[1]
+
+        if form.audio_model:
+            audio_model = form.audio_model
+
+        if form.chat_model_temperature is not None:
+            temperature = form.chat_model_temperature
 
         iterations = []
 
-        if plugin_settings.SCRIBE_API_PROVIDER == "google":
+        if api_provider == "google":
             iterations = chunk_questionnaires(form.form_data, max_fields=15)
         else:
             iterations = chunk_questionnaires(form.form_data, max_fields=50)
 
         logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
 
-        form.meta["provider"] = plugin_settings.SCRIBE_API_PROVIDER
-        form.meta["chat_model"] = plugin_settings.SCRIBE_CHAT_MODEL_NAME
-        form.meta["audio_model"] = plugin_settings.SCRIBE_AUDIO_MODEL_NAME
+        form.meta["provider"] = api_provider
+        form.meta["chat_model"] = chat_model
+        form.meta["audio_model"] = audio_model
 
         def remove_keys(obj, keys_to_remove):
             if isinstance(obj, dict):
@@ -142,44 +152,18 @@ def process_ai_form_fill(external_id):
 
             return schema
 
-        def process_fields(fields: list, existing_data_prompt: str, function: dict, depth: int = 0) -> str:
-            indent = "  " * depth
-
+        def process_fields(fields: list) -> str:
             for fd in fields:
-                if "fields" in fd:
-                    title = fd.get("title", "Untitled Group")
-                    desc = fd.get("description", "")
-                    existing_data_prompt += textwrap.indent(
-                        textwrap.dedent(
-                            f"""
-                            ## {title}
-                            {desc}
-                            """
-                        ),
-                        indent,
-                    )
-                    existing_data_prompt = process_fields(fd["fields"], existing_data_prompt, function, depth + 1)
-                else:  # It's a Field
+                if not "fields" in fd:
                     schema = fd.get("schema", {})
                     field_id = fd.get("id", "")
 
                     keys_to_remove = {"$schema", "const", "$ref", "$defs"}
-                    if plugin_settings.SCRIBE_API_PROVIDER != "openai":
+                    if api_provider != "openai":
                         keys_to_remove.add("additionalProperties")
 
                     schema = remove_keys(schema, keys_to_remove)
                     function["parameters"]["properties"][field_id] = schema
-
-                    options_text = f"Options: {', '.join(schema.get('options', []))}" if "options" in schema else ""
-
-                    field_text = f"""
-                    ### {fd.get('friendlyName', '')}
-                    {options_text}
-                    Current Value: {fd.get('humanValue', '')}\n
-                    """
-                    existing_data_prompt += textwrap.indent(textwrap.dedent(field_text), indent)
-
-            return existing_data_prompt
 
         full_response = {}
         meta_iterations = []
@@ -188,8 +172,6 @@ def process_ai_form_fill(external_id):
             this_iteration = {}
 
             function = {
-                "name": "process_ai_form_fill",
-                "description": "Process AI form fill",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -202,23 +184,14 @@ def process_ai_form_fill(external_id):
                 },
             }
 
-            if idx > 0 or (plugin_settings.SCRIBE_API_PROVIDER != "google" and len(form.document_file_ids) == 0):
+            if idx > 0 or (api_provider != "google" and len(form.document_file_ids) == 0):
                 del function["parameters"]["properties"]["__scribe__transcription"]
                 function["parameters"]["required"].remove("__scribe__transcription")
 
-            existing_data_prompt = ""
-
             for qn in iteration:
+                process_fields(qn["fields"])
 
-                existing_data_prompt += textwrap.dedent(
-                    f"""
-                    ## {qn.get("title", "Untitled Questionnaire")}
-                    {qn.get("description", "")}
-                    """
-                )
-                existing_data_prompt = process_fields(qn["fields"], existing_data_prompt, function)
-
-            if plugin_settings.SCRIBE_API_PROVIDER != "google":
+            if api_provider != "google":
                 function = {
                     **function,
                     "parameters": fill_missing_types(function["parameters"]),
@@ -228,7 +201,7 @@ def process_ai_form_fill(external_id):
 
             this_iteration = {"function": function, "prompt": (form.prompt or prompt)}
 
-            if plugin_settings.SCRIBE_API_PROVIDER == "google":
+            if api_provider == "google":
 
                 messages = [
                     types.Content(
@@ -253,7 +226,7 @@ def process_ai_form_fill(external_id):
             user_contents = []
 
             if form.text:
-                if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                if api_provider == "google":
                     messages.append(types.Content(role="user", parts=[types.Part.from_text(text=form.text)]))
                 else:
                     user_contents.append({"type": "text", "text": form.text})
@@ -274,7 +247,7 @@ def process_ai_form_fill(external_id):
                         buffer = io.BytesIO(audio_file_data)
                         buffer.name = "file." + format
 
-                        if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                        if api_provider == "google":
                             messages.append(
                                 types.Content(
                                     role="user",
@@ -291,7 +264,7 @@ def process_ai_form_fill(external_id):
                         else:
                             logger.info(f"=== Generating transcript for AI form fill {form.external_id} ===")
 
-                            transcription = ai_client().audio.translations.create(model=plugin_settings.SCRIBE_AUDIO_MODEL_NAME, file=buffer)
+                            transcription = ai_client(api_provider).audio.translations.create(model=audio_model, file=buffer)
                             transcript += transcription.text
                             logger.info(f"Transcript: {transcript}")
 
@@ -320,7 +293,7 @@ def process_ai_form_fill(external_id):
                     format = document_file_object.internal_name.split(".")[-1]
                     encoded_string = base64.b64encode(document_file_data).decode("utf-8")
 
-                    if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                    if api_provider == "google":
                         messages.append(
                             types.Content(
                                 role="user",
@@ -341,7 +314,7 @@ def process_ai_form_fill(external_id):
                         )
 
                 if transcript != "":
-                    if plugin_settings.SCRIBE_API_PROVIDER == "google":
+                    if api_provider == "google":
                         messages.append(types.Content(role="user", parts=[types.Part.from_text(text=transcript)]))
                     else:
                         user_contents.append({"type": "text", "text": transcript})
@@ -352,17 +325,27 @@ def process_ai_form_fill(external_id):
 
                 completion_start_time = perf_counter()
 
-                if plugin_settings.SCRIBE_API_PROVIDER == "google":
-                    ai_response = ai_client().models.generate_content(
-                        model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
+                if api_provider == "google":
+                    ai_response = ai_client(api_provider).models.generate_content(
+                        model=chat_model,
                         contents=messages,
                         config=types.GenerateContentConfig(
-                            temperature=0,
+                            temperature=temperature,
                             max_output_tokens=8192,
                             response_mime_type="application/json",
-                            response_schema=function["parameters"]
+                            response_schema=function["parameters"],
+                            # thinking_config=types.ThinkingConfig(
+                            #     thinking_budget=1024,
+                            #     include_thoughts=True,
+                            # )
                         ),
                     )
+
+                    # thinking = ai_response.candidates[0].content.parts
+
+                    # for part in thinking:
+                    #     if part.thought:
+                    #         logger.info(f"AI thought: {part.text}")
 
                     ai_response_json = ai_response.parsed
 
@@ -380,15 +363,15 @@ def process_ai_form_fill(external_id):
 
                     messages.append({"role": "user", "content": user_contents})
 
-                    ai_response = ai_client().chat.completions.create(
-                        model=plugin_settings.SCRIBE_CHAT_MODEL_NAME,
+                    ai_response = ai_client(api_provider).chat.completions.create(
+                        model=chat_model,
                         max_tokens=10000,
-                        temperature=0,
+                        temperature=temperature,
                         messages=messages,
                         response_format={
                             "type" : "json_schema",
                             "json_schema" : {
-                                "name" : function["name"],
+                                "name" : "process_ai_form_fill",
                                 "schema" : {
                                     **function["parameters"],
                                     "required" : [key for key, value in function["parameters"]["properties"].items()],

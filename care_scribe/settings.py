@@ -91,7 +91,7 @@ class PluginSettings:  # pragma: no cover
                 'Invalid value for "SCRIBE_API_PROVIDER". '
                 'Please set the "SCRIBE_API_PROVIDER" to "openai", "google" or "azure".'
             )
-        
+
         if getattr(self, "SCRIBE_API_PROVIDER") == "openai":
             for setting in ("SCRIBE_PROVIDER_API_KEY",):
                 if not getattr(self, setting):
@@ -107,7 +107,7 @@ class PluginSettings:  # pragma: no cover
                         f'The "{setting}" setting is required when using Azure API. '
                         f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                     )
-                
+
         if getattr(self, "SCRIBE_API_PROVIDER") == "google":
             for setting in ("SCRIBE_GOOGLE_PROJECT_ID", "SCRIBE_GOOGLE_LOCATION"):
                 if not getattr(self, setting):
@@ -133,7 +133,8 @@ REQUIRED_SETTINGS = {
 }
 
 DEFAULTS = {
-    "SCRIBE_PROVIDER_API_KEY": "",
+    "SCRIBE_OPENAI_API_KEY": "",
+    "SCRIBE_AZURE_API_KEY": "",
     "SCRIBE_AUDIO_MODEL_NAME": "whisper-1",
     "SCRIBE_CHAT_MODEL_NAME": "gpt-4o",
     "SCRIBE_API_PROVIDER": "openai",

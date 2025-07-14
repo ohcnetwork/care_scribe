@@ -29,18 +29,21 @@ scribe_plug = Plug(
     version="@master",
     configs={
         "SCRIBE_API_PROVIDER": "openai",  # or "azure" or "google"
-=       "SCRIBE_PROVIDER_API_KEY": "my-api-key" # not required if API_PROVIDER is "google"
         "SCRIBE_AUDIO_MODEL_NAME": "",  # model name for speech to text - Not required for Google
         "SCRIBE_CHAT_MODEL_NAME": "",  # model name for chat completion
+
+        # OpenAI Configs
+        "SCRIBE_OPENAI_API_KEY": "my-api-key",
 
         # Azure OpenAI Configs
         "SCRIBE_AZURE_API_VERSION": "",
         "SCRIBE_AZURE_ENDPOINT": "",
+        "SCRIBE_AZURE_API_KEY": "",
 
         # Google Configs
         "SCRIBE_GOOGLE_PROJECT_ID": "my-gcp-project",
         "SCRIBE_GOOGLE_LOCATION": "us-central1",
-        
+
     },
 )
 plugs = [scribe_plug]

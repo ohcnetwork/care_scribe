@@ -2,7 +2,7 @@ from rest_framework import serializers
 from care.facility.models.facility import Facility
 from care.emr.models.encounter import Encounter
 from care.emr.models.patient import Patient
-from care.users.models import User
+from care.users.models import User, UserFlag
 from care_scribe.models.scribe import Scribe
 from care.users.api.serializers.user import FacilityBareMinimumSerializer
 from care_scribe.models.scribe_file import ScribeFile
@@ -43,6 +43,11 @@ class ScribeSerializer(serializers.ModelSerializer):
     requested_in_encounter = ScribeEncounterSerializer(read_only=True)
     requested_by = ScribeUserSerializer(read_only=True)
     processed_ai_response = serializers.JSONField(write_only=True, required=False)
+    benchmark = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        help_text="Whether the scribe request is for benchmarking purposes.",
+    )
 
     audio = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
@@ -68,6 +73,10 @@ class ScribeSerializer(serializers.ModelSerializer):
             "modified_date",
             "documents",
             "processed_ai_response",
+            "benchmark",
+            "chat_model",
+            "audio_model",
+            "chat_model_temperature",
         ]
         read_only_fields = [
             "external_id",
@@ -84,6 +93,12 @@ class ScribeSerializer(serializers.ModelSerializer):
         facility_id = self.validated_data.get("requested_in_facility_id", None)
         encounter_id = self.validated_data.get("requested_in_encounter_id", None)
         processed_ai_response = self.validated_data.pop("processed_ai_response", None)
+        benchmark = self.validated_data.pop("benchmark", False) or (self.instance.meta.get("benchmark", False) if self.instance else False)
+
+        user = self.context["request"].user
+
+        if not user:
+            raise serializers.ValidationError({"user": "User is required to create a scribe request."})
 
         if facility_id:
             self.validated_data["requested_in_facility"] = Facility.objects.filter(external_id=facility_id).first()
@@ -92,13 +107,27 @@ class ScribeSerializer(serializers.ModelSerializer):
         if processed_ai_response:
             self.validated_data["meta"] = {**self.instance.meta, "processed_ai_response": processed_ai_response}
 
+        if benchmark:
+            if UserFlag.check_user_has_flag(user.id, "SCRIBE_ADMIN"):
+                self.validated_data["meta"] = {**(self.instance.meta if self.instance else {}), "benchmark": benchmark}
+            else:
+                raise serializers.ValidationError(
+                    {"benchmark": "You do not have permission to create a benchmark scribe request."}
+                )
+
+        if (self.validated_data.get("chat_model", None) or self.validated_data.get("audio_model", None) or self.validated_data.get("chat_model_temperature", None)) and not UserFlag.check_user_has_flag(user.id, "SCRIBE_ADMIN"):
+            raise serializers.ValidationError(
+                {"chat_model": "You do not have permission to set custom chat or audio models."}
+            )
+
         # TODO : Check if the user has access to the facility. This is not a very huge concern rn, but still should be done
 
-        if (self.instance and not self.instance.requested_in_facility) and not self.validated_data["requested_in_facility"]:
-            raise serializers.ValidationError({"requested_in_facility": "Invalid facility ID"})
+        if not benchmark:
+            if (self.instance and not self.instance.requested_in_facility) and not self.validated_data["requested_in_facility"]:
+                raise serializers.ValidationError({"requested_in_facility": "Invalid facility ID"})
 
-        if (self.instance and not self.instance.requested_in_encounter) and not self.validated_data["requested_in_encounter"]:
-            raise serializers.ValidationError({"requested_in_encounter": "Invalid encounter ID"})
+            if (self.instance and not self.instance.requested_in_encounter) and not self.validated_data["requested_in_encounter"]:
+                raise serializers.ValidationError({"requested_in_encounter": "Invalid encounter ID"})
 
         self.validated_data.pop("requested_in_facility_id", None)
         self.validated_data.pop("requested_in_encounter_id", None)

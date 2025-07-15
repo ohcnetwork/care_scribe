@@ -84,11 +84,13 @@ def process_ai_form_fill(external_id):
     prompt = prompt.replace("{current_date_time}", datetime.datetime.now().isoformat())
     form = Scribe.objects.get(external_id=external_id, status=Scribe.Status.READY)
 
+    is_benchmark = form.meta.get("benchmark", False)
+
     # Verify if the user/facility has not exceeded their quota
     user_quota = form.requested_by.scribe_quota.first()
     facility_quota = form.requested_in_facility.scribe_quota.first() if form.requested_in_facility else None
 
-    if not user_quota and not facility_quota:
+    if not user_quota and not facility_quota and not is_benchmark:
         form.meta["error"] = "User or facility does not have a scribe quota."
         form.status = Scribe.Status.FAILED
         form.save()
@@ -102,7 +104,7 @@ def process_ai_form_fill(external_id):
     if facility_quota:
         facility_available_tokens = facility_quota.tokens - facility_quota.used()
 
-    if user_available_tokens <= 0 and facility_available_tokens <= 0:
+    if user_available_tokens <= 0 and facility_available_tokens <= 0 and not is_benchmark:
         form.meta["error"] = "User or facility has exceeded their scribe quota."
         form.status = Scribe.Status.FAILED
         form.save()
@@ -406,7 +408,7 @@ def process_ai_form_fill(external_id):
                 #     if part.thought:
                 #         logger.info(f"AI thought: {part.text}")
 
-                ai_response_json = ai_response.parsed or {}
+                ai_response_json = ai_response.parsed or {"__scribe__transcription": "No transcription available."}
 
                 completion_time = perf_counter() - completion_start_time
 

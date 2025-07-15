@@ -384,7 +384,7 @@ def process_ai_form_fill(external_id):
                     #     if part.thought:
                     #         logger.info(f"AI thought: {part.text}")
 
-                    ai_response_json = ai_response.parsed or {"__scribe_transcription" : "No transcription available"}
+                    ai_response_json = ai_response.parsed or {"__scribe__transcription" : "No transcription available"}
 
                     completion_time = perf_counter() - completion_start_time
 

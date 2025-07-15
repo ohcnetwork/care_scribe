@@ -105,7 +105,7 @@ def process_ai_form_fill(external_id):
         iterations = []
 
         if api_provider == "google":
-            iterations = chunk_questionnaires(form.form_data, max_fields=15)
+            iterations = chunk_questionnaires(form.form_data, max_fields=10)
         else:
             iterations = chunk_questionnaires(form.form_data, max_fields=50)
 

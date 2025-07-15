@@ -368,7 +368,6 @@ def process_ai_form_fill(external_id):
                         contents=messages,
                         config=types.GenerateContentConfig(
                             temperature=temperature,
-                            max_output_tokens=8192,
                             response_mime_type="application/json",
                             response_schema=function["parameters"],
                             # thinking_config=types.ThinkingConfig(

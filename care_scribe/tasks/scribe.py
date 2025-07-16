@@ -185,7 +185,7 @@ def process_ai_form_fill(external_id):
                 schema = fd.get("schema", {})
                 field_id = fd.get("id", "")
 
-                keys_to_remove = {"$schema", "const", "$ref", "$defs"}
+                keys_to_remove = {"$schema", "const", "$ref", "$defs", "property_ordering"}
                 if api_provider != "openai":
                     keys_to_remove.add("additionalProperties")
 

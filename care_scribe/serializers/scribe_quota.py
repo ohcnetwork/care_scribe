@@ -41,18 +41,18 @@ class ScribeQuotaSerializer(serializers.ModelSerializer):
         # check if a quota already exists for the user or facility
         if user_external_id:
             if ScribeQuota.objects.filter(user__external_id=user_external_id).exists():
-                raise serializers.ValidationError(f"A ScribeQuota already exists for user with external ID {user_external_id}.")
+                raise serializers.ValidationError(f"A ScribeQuota already exists for this user.")
             user = User.objects.filter(external_id=user_external_id).first()
             if not user:
-                raise serializers.ValidationError(f"User with external ID {user_external_id} does not exist.")
+                raise serializers.ValidationError(f"User does not exist.")
             attrs["user"] = user
 
         if facility_external_id:
             if ScribeQuota.objects.filter(facility__external_id=facility_external_id).exists():
-                raise serializers.ValidationError(f"A ScribeQuota already exists for facility with external ID {facility_external_id}.")
+                raise serializers.ValidationError(f"A ScribeQuota already exists for this facility.")
             facility = Facility.objects.filter(external_id=facility_external_id).first()
             if not facility:
-                raise serializers.ValidationError(f"Facility with external ID {facility_external_id} does not exist.")
+                raise serializers.ValidationError(f"Facility does not exist.")
             attrs["facility"] = facility
 
         return super().validate(attrs)

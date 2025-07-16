@@ -392,7 +392,6 @@ def process_ai_form_fill(external_id):
                     contents=messages,
                     config=types.GenerateContentConfig(
                         temperature=temperature,
-                        max_output_tokens=8192,
                         response_mime_type="application/json",
                         response_schema=function["parameters"],
                         # thinking_config=types.ThinkingConfig(
@@ -408,7 +407,10 @@ def process_ai_form_fill(external_id):
                 #     if part.thought:
                 #         logger.info(f"AI thought: {part.text}")
 
-                ai_response_json = ai_response.parsed or {"__scribe__transcription": "No transcription available."}
+                ai_response_json = ai_response.parsed
+
+                if not ai_response_json:
+                    raise Exception("AI response is empty. Please try using a smaller audio file.")
 
                 completion_time = perf_counter() - completion_start_time
 
@@ -426,7 +428,6 @@ def process_ai_form_fill(external_id):
 
                 ai_response = ai_client(api_provider).chat.completions.create(
                     model=chat_model,
-                    max_tokens=10000,
                     temperature=temperature,
                     messages=messages,
                     response_format={

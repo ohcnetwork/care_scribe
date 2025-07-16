@@ -6,10 +6,3 @@ PLUGIN_NAME = "care_scribe"
 
 class CareScribeConfig(AppConfig):
     name = PLUGIN_NAME
-
-    def ready(self):
-        FlagRegistry.register(FlagType.FACILITY, "SCRIBE_ENABLED")
-        FlagRegistry.register(FlagType.FACILITY, "SCRIBE_OCR_ENABLED")
-        FlagRegistry.register(FlagType.USER, "SCRIBE_ENABLED")
-        FlagRegistry.register(FlagType.USER, "SCRIBE_OCR_ENABLED")
-        FlagRegistry.register(FlagType.USER, "SCRIBE_ADMIN")

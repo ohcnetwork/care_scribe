@@ -18,4 +18,6 @@ class ScribeFile(BaseFileUpload):
         null=True,
         blank=True,
     )
-    
+    meta = models.JSONField(
+        default=dict,
+    )

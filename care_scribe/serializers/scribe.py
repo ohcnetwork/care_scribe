@@ -108,14 +108,14 @@ class ScribeSerializer(serializers.ModelSerializer):
             self.validated_data["meta"] = {**self.instance.meta, "processed_ai_response": processed_ai_response}
 
         if benchmark:
-            if UserFlag.check_user_has_flag(user.id, "SCRIBE_ADMIN"):
+            if user.is_superuser:
                 self.validated_data["meta"] = {**(self.instance.meta if self.instance else {}), "benchmark": benchmark}
             else:
                 raise serializers.ValidationError(
                     {"benchmark": "You do not have permission to create a benchmark scribe request."}
                 )
 
-        if (self.validated_data.get("chat_model", None) or self.validated_data.get("audio_model", None) or self.validated_data.get("chat_model_temperature", None)) and not UserFlag.check_user_has_flag(user.id, "SCRIBE_ADMIN"):
+        if (self.validated_data.get("chat_model", None) or self.validated_data.get("audio_model", None) or self.validated_data.get("chat_model_temperature", None)) and not user.is_superuser:
             raise serializers.ValidationError(
                 {"chat_model": "You do not have permission to set custom chat or audio models."}
             )

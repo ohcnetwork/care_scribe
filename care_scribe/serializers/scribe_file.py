@@ -5,7 +5,6 @@ from rest_framework.exceptions import ValidationError
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 
-
 def check_permissions(file_type, associating_id, user):
     if file_type == ScribeFile.FileType.SCRIBE_AUDIO or file_type == ScribeFile.FileType.SCRIBE_DOCUMENT:
         scribe_obj = Scribe.objects.filter(external_id=associating_id).first()
@@ -26,6 +25,7 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
     internal_name = serializers.CharField(read_only=True)
     original_name = serializers.CharField(write_only=True)
     mime_type = serializers.CharField(write_only=True)
+    length = serializers.DecimalField(write_only=True, required=False, max_digits=20, decimal_places=2)
 
     class Meta:
         model = ScribeFile
@@ -39,8 +39,15 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
             "internal_name",
             "original_name",
             "mime_type",
+            "length",
         )
         write_only_fields = ("associating_id",)
+
+    def validate(self, attrs):
+        length = attrs.pop("length")
+        attrs["meta"] = {"length": int(length * 1000)}
+
+        return super().validate(attrs)
 
     def create(self, validated_data):
         user = self.context["request"].user
@@ -58,6 +65,7 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
         del validated_data["original_name"]
         file_upload: ScribeFile = super().create(validated_data)
         file_upload.signed_url = file_upload.signed_url(mime_type=mime_type)
+
         return file_upload
 
 

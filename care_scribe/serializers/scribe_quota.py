@@ -3,8 +3,8 @@ from rest_framework import serializers
 from care.facility.models.facility import Facility
 from care.users.api.serializers.user import FacilityBareMinimumSerializer
 from care.users.models import User
-from care_scribe.care_scribe.models.scribe_quota import ScribeQuota
-from care_scribe.care_scribe.serializers.scribe import ScribeUserSerializer
+from care_scribe.models.scribe_quota import ScribeQuota
+from care_scribe.serializers.scribe import ScribeUserSerializer
 
 class ScribeQuotaSerializer(serializers.ModelSerializer):
     facility = FacilityBareMinimumSerializer(read_only=True)

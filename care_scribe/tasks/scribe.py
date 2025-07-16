@@ -176,23 +176,11 @@ def process_ai_form_fill(external_id):
 
         return schema
 
-    def process_fields(fields: list, existing_data_prompt: str, function: dict, depth: int = 0) -> str:
-        indent = "  " * depth
+    def process_fields(fields: list):
 
         for fd in fields:
             if "fields" in fd:
-                title = fd.get("title", "Untitled Group")
-                desc = fd.get("description", "")
-                existing_data_prompt += textwrap.indent(
-                    textwrap.dedent(
-                        f"""
-                        ## {title}
-                        {desc}
-                        """
-                    ),
-                    indent,
-                )
-                existing_data_prompt = process_fields(fd["fields"], existing_data_prompt, function, depth + 1)
+                process_fields(fd["fields"])
             else:  # It's a Field
                 schema = fd.get("schema", {})
                 field_id = fd.get("id", "")
@@ -202,18 +190,7 @@ def process_ai_form_fill(external_id):
                     keys_to_remove.add("additionalProperties")
 
                 schema = remove_keys(schema, keys_to_remove)
-                function["parameters"]["properties"][field_id] = schema
-
-                options_text = f"Options: {', '.join(schema.get('options', []))}" if "options" in schema else ""
-
-                field_text = f"""
-                ### {fd.get('friendlyName', '')}
-                {options_text}
-                Current Value: {fd.get('humanValue', '')}\n
-                """
-                existing_data_prompt += textwrap.indent(textwrap.dedent(field_text), indent)
-
-        return existing_data_prompt
+                output_schema["properties"][field_id] = schema
 
     full_response = {}
     meta_iterations = []
@@ -221,10 +198,7 @@ def process_ai_form_fill(external_id):
         initiation_time = perf_counter()
         this_iteration = {}
 
-        function = {
-            "name": "process_ai_form_fill",
-            "description": "Process AI form fill",
-            "parameters": {
+        output_schema = {
                 "type": "object",
                 "properties": {
                     "__scribe__transcription": {
@@ -233,34 +207,21 @@ def process_ai_form_fill(external_id):
                     }
                 },
                 "required": ["__scribe__transcription"],
-            },
         }
 
         if idx > 0 or (api_provider != "google" and len(form.document_file_ids) == 0):
-            del function["parameters"]["properties"]["__scribe__transcription"]
-            function["parameters"]["required"].remove("__scribe__transcription")
-
-        existing_data_prompt = ""
+            del output_schema["properties"]["__scribe__transcription"]
+            output_schema["required"].remove("__scribe__transcription")
 
         for qn in iteration:
-
-            existing_data_prompt += textwrap.dedent(
-                f"""
-                ## {qn.get("title", "Untitled Questionnaire")}
-                {qn.get("description", "")}
-                """
-            )
-            existing_data_prompt = process_fields(qn["fields"], existing_data_prompt, function)
+            process_fields(qn["fields"])
 
         if api_provider != "google":
-            function = {
-                **function,
-                "parameters": fill_missing_types(function["parameters"]),
-            }
+            output_schema = fill_missing_types(output_schema)
 
         logger.info(f"=== Processing AI form fill {form.external_id} ===")
 
-        this_iteration = {"function": function, "prompt": (form.prompt or prompt)}
+        this_iteration = {"function": output_schema, "prompt": (form.prompt or prompt)}
 
         if api_provider == "google":
 
@@ -393,7 +354,7 @@ def process_ai_form_fill(external_id):
                     config=types.GenerateContentConfig(
                         temperature=temperature,
                         response_mime_type="application/json",
-                        response_schema=function["parameters"],
+                        response_schema=output_schema,
                         # thinking_config=types.ThinkingConfig(
                         #     thinking_budget=1024,
                         #     include_thoughts=True,
@@ -409,7 +370,7 @@ def process_ai_form_fill(external_id):
 
                 ai_response_json = ai_response.parsed
 
-                if not ai_response_json:
+                if ai_response_json is None:
                     raise Exception("AI response is empty. Please try using a smaller audio file.")
 
                 completion_time = perf_counter() - completion_start_time
@@ -433,10 +394,10 @@ def process_ai_form_fill(external_id):
                     response_format={
                         "type" : "json_schema",
                         "json_schema" : {
-                            "name" : function["name"],
+                            "name" : "process_ai_form_fill",
                             "schema" : {
-                                **function["parameters"],
-                                "required" : [key for key, value in function["parameters"]["properties"].items()],
+                                **output_schema,
+                                "required" : [key for key, value in output_schema["properties"].items()],
                                 "additionalProperties": False
                             },
                             "strict" : True,

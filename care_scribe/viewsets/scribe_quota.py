@@ -44,9 +44,6 @@ class ScribeQuotaViewSet(
     serializer_class = ScribeQuotaSerializer
     lookup_field = "external_id"
     permission_classes = [IsAdminUser]
-    permission_action_classes = {
-        "my-quota": [IsAuthenticated(),]
-    }
     filter_backends = [
         DjangoFilterBackend,
         rest_framework_filters.OrderingFilter,
@@ -57,7 +54,7 @@ class ScribeQuotaViewSet(
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-    @action(detail=False, methods=["get"], url_path="my-quota")
+    @action(detail=False, methods=["get"], url_path="my-quota", permission_classes=[IsAuthenticated])
     def my_quota(self, request):
         user = request.user
         facility_id = request.query_params.get("facility_id", None)

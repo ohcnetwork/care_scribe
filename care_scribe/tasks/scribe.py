@@ -68,7 +68,7 @@ def process_ai_form_fill(external_id):
         Rules:
         • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
         • Translate non-English content to English before calling the tool.
-        • If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.
+        • If specified in tool call, after filling the form, {transcript_instructions} in English as `__scribe__transcription`.
 
         Notes Handling (very important):
         • ONLY include the `note` field **if** there is additional context that cannot be captured in the `value`.
@@ -129,15 +129,32 @@ def process_ai_form_fill(external_id):
     iterations = []
 
     if api_provider == "google":
-        iterations = chunk_questionnaires(form.form_data, max_fields=15)
+        iterations = chunk_questionnaires(form.form_data, max_fields=1000)
     else:
-        iterations = chunk_questionnaires(form.form_data, max_fields=50)
+        iterations = chunk_questionnaires(form.form_data, max_fields=1000)
 
     logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
 
     form.meta["provider"] = api_provider
     form.meta["chat_model"] = chat_model
     form.meta["audio_model"] = audio_model
+
+    audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
+
+    total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
+
+    if total_audio_duration > (3 * 60 * 1000):
+        prompt = prompt.replace(
+            "{transcript_instructions}",
+            "return a short summarized transcription of the audio content, focusing on key points and insights",
+        )
+    else:
+        prompt = prompt.replace(
+            "{transcript_instructions}",
+            "return the transcription with the original content (text, transcript, or image summary)",
+        )
+
+    print(total_audio_duration)
 
     def remove_keys(obj, keys_to_remove):
         if isinstance(obj, dict):
@@ -259,11 +276,9 @@ def process_ai_form_fill(external_id):
 
             transcript = ""
             if not form.transcript:
-                audio_file_objects = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
+                logger.info(f"Audio file objects: {audio_files}")
 
-                logger.info(f"Audio file objects: {audio_file_objects}")
-
-                for audio_file_object in audio_file_objects:
+                for audio_file_object in audio_files:
                     _, audio_file_data = audio_file_object.file_contents()
                     format = audio_file_object.internal_name.split(".")[-1]
                     buffer = io.BytesIO(audio_file_data)
@@ -368,10 +383,10 @@ def process_ai_form_fill(external_id):
                 #     if part.thought:
                 #         logger.info(f"AI thought: {part.text}")
 
-                ai_response_json = ai_response.parsed
+                if ai_response.candidates[0].finish_reason != types.FinishReason.STOP:
+                    raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)}")
 
-                if ai_response_json is None:
-                    raise Exception("AI response is empty. Please try using a smaller audio file.")
+                ai_response_json = ai_response.parsed
 
                 completion_time = perf_counter() - completion_start_time
 

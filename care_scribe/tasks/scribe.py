@@ -8,15 +8,12 @@ import textwrap
 from time import perf_counter
 from celery import shared_task
 from openai import OpenAI, AzureOpenAI
-from pydantic import BaseModel, Field
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.settings import plugin_settings
 from google.genai import types
 from google import genai
 from google.oauth2 import service_account
-from care.users.models import UserFlag
-from care.facility.models.facility_flag import FacilityFlag
 import copy
 from care_scribe.utils import chunk_questionnaires
 
@@ -61,14 +58,14 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
 
 @shared_task
 def process_ai_form_fill(external_id):
-    prompt = textwrap.dedent(
+    base_prompt = textwrap.dedent(
         """
-        You'll receive a patient's encounter (text, audio, or image). Extract all valid data and invoke the required tool for the data.
+        You'll receive a patient's encounter (text, audio, or image). Extract all valid data from the encounter and fill the form with it.
 
         Rules:
         • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
-        • Translate non-English content to English before calling the tool.
-        • If specified in tool call, after filling the form, {transcript_instructions} in English as `__scribe__transcription`.
+        • Translate non-English content to English before responding.
+        {transcript_instructions}
 
         Notes Handling (very important):
         • ONLY include the `note` field **if** there is additional context that cannot be captured in the `value`.
@@ -81,7 +78,7 @@ def process_ai_form_fill(external_id):
     """
     )
     # Get current timezone-aware datetime
-    prompt = prompt.replace("{current_date_time}", datetime.datetime.now().isoformat())
+    base_prompt = base_prompt.replace("{current_date_time}", datetime.datetime.now().isoformat())
     form = Scribe.objects.get(external_id=external_id, status=Scribe.Status.READY)
 
     is_benchmark = form.meta.get("benchmark", False)
@@ -129,9 +126,9 @@ def process_ai_form_fill(external_id):
     iterations = []
 
     if api_provider == "google":
-        iterations = chunk_questionnaires(form.form_data, max_fields=1000)
+        iterations = chunk_questionnaires(form.form_data, max_fields=20)
     else:
-        iterations = chunk_questionnaires(form.form_data, max_fields=1000)
+        iterations = chunk_questionnaires(form.form_data, max_fields=50)
 
     logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
 
@@ -142,19 +139,6 @@ def process_ai_form_fill(external_id):
     audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
 
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
-
-    if total_audio_duration > (3 * 60 * 1000):
-        prompt = prompt.replace(
-            "{transcript_instructions}",
-            "return a short summarized transcription of the audio content, focusing on key points and insights",
-        )
-    else:
-        prompt = prompt.replace(
-            "{transcript_instructions}",
-            "return the transcription with the original content (text, transcript, or image summary)",
-        )
-
-    print(total_audio_duration)
 
     def remove_keys(obj, keys_to_remove):
         if isinstance(obj, dict):
@@ -212,9 +196,6 @@ def process_ai_form_fill(external_id):
     full_response = {}
     meta_iterations = []
     for idx, iteration in enumerate(iterations):
-        initiation_time = perf_counter()
-        this_iteration = {}
-
         output_schema = {
                 "type": "object",
                 "properties": {
@@ -225,6 +206,25 @@ def process_ai_form_fill(external_id):
                 },
                 "required": ["__scribe__transcription"],
         }
+        initiation_time = perf_counter()
+        if idx == 0 and api_provider == "google":
+            if total_audio_duration > (3 * 60 * 1000):
+                prompt = base_prompt.replace(
+                    "{transcript_instructions}",
+                    "• If specified in tool call, after filling the form, return a short summarized transcription of the audio content, focusing on key points and insights in English as `__scribe__transcription`.",
+                )
+                output_schema["properties"]["__scribe__transcription"]["description"] = "A short summarized transcription of the audio content, focusing on key points and insights in English."
+            else:
+                prompt = base_prompt.replace(
+                    "{transcript_instructions}",
+                    "• If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.",
+                )
+        else:
+            prompt = base_prompt.replace(
+                "{transcript_instructions}",
+                ""
+            )
+        this_iteration = {}
 
         if idx > 0 or (api_provider != "google" and len(form.document_file_ids) == 0):
             del output_schema["properties"]["__scribe__transcription"]

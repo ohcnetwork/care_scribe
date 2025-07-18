@@ -4,7 +4,6 @@ from care_scribe.models.scribe_quota import ScribeQuota
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 
-
 @admin.register(Scribe)
 class ScribeAdmin(admin.ModelAdmin):
     search_fields = ["requested_by__username", "transcript", "status"]

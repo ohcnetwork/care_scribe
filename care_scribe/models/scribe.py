@@ -125,6 +125,11 @@ class Scribe(BaseModel):
     audio_model = models.CharField(max_length=100, null=True, blank=True)
     chat_model_temperature = models.FloatField(null=True, blank=True)
 
+    is_feedback_positive = models.BooleanField(null=True, blank=True, help_text="Whether the user has given positive feedback on the AI response")
+    feedback_comments = models.TextField(null=True, blank=True, help_text="Details of the feedback provided by the user")
+    chat_input_tokens = models.IntegerField(null=True, blank=True, help_text="Number of tokens used in the chat input")
+    chat_output_tokens = models.IntegerField(null=True, blank=True, help_text="Number of tokens used in the chat output")
+
     @property
     def audio_file_ids(self):
         from care_scribe.models.scribe_file import ScribeFile

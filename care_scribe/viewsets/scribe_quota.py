@@ -17,6 +17,11 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters import rest_framework as filters
+from care_scribe.settings import plugin_settings
+from care_scribe.utils import hash_string
+
+from care.facility.models.facility import Facility
+from django.utils import timezone
 
 class ScribeQuotaFilter(filters.FilterSet):
 
@@ -40,7 +45,7 @@ class ScribeQuotaViewSet(
     GenericViewSet,
     DestroyModelMixin
 ):
-    queryset = ScribeQuota.objects.all()
+    queryset = ScribeQuota.objects.filter(user=None)
     serializer_class = ScribeQuotaSerializer
     lookup_field = "external_id"
     permission_classes = [IsAdminUser]
@@ -58,13 +63,65 @@ class ScribeQuotaViewSet(
     def my_quota(self, request):
         user = request.user
         facility_id = request.query_params.get("facility_id", None)
-        quota = ScribeQuota.objects.filter(user=user).first()
 
-        if not quota and facility_id:
-            quota = ScribeQuota.objects.filter(facility__external_id=facility_id).first()
+        if not facility_id:
+            return Response({"detail": "Facility ID is required."}, status=400)
 
-        if not quota:
-            return Response({"detail": "No quota found for the user or facility."}, status=404)
+        tnc = plugin_settings.SCRIBE_TNC
+        tnc_hash = hash_string(tnc)
 
-        serializer = self.get_serializer(quota)
-        return Response(serializer.data)
+        user_quota = ScribeQuota.objects.filter(user=user, facility__external_id=facility_id).first()
+        facility_quota = ScribeQuota.objects.filter(facility__external_id=facility_id, user=None).first()
+        accepted_tnc = user_quota.tnc_hash == tnc_hash if user_quota else False
+
+        to_show = [facility_quota]
+        if user_quota:
+            to_show.append(user_quota)
+
+        serializer = self.get_serializer(to_show, many=True)
+        return Response(
+            {
+                "quotas" : serializer.data,
+                "tnc_accepted": accepted_tnc,
+                "tnc" : tnc,
+            })
+
+    @action(detail=False, methods=["post"], url_path="accept-tnc", permission_classes=[IsAuthenticated])
+    def accept_tnc(self, request):
+        user = request.user
+        facility_id = request.data.get("facility_id", None)
+
+        if not facility_id:
+            return Response({"detail": "Facility ID is required."}, status=400)
+
+        tnc = plugin_settings.SCRIBE_TNC
+        tnc_hash = hash_string(tnc)
+
+        user_quota = ScribeQuota.objects.filter(user=user, facility__external_id=facility_id).first()
+
+        if user_quota and user_quota.tnc_hash == tnc_hash:
+            return Response({"detail": "Terms and Conditions already accepted."})
+
+        if not user_quota:
+            facility = Facility.objects.filter(external_id=facility_id).first()
+            if not facility:
+                return Response({"detail": "Facility does not exist."}, status=400)
+            # Also check if user belongs to the facility (TODO)
+
+            facility_quota = ScribeQuota.objects.filter(facility=facility, user=None).first()
+            if not facility_quota:
+                return Response({"detail": "Facility does not have a quota."}, status=400)
+
+            user_quota = ScribeQuota.objects.create(
+                user=user,
+                facility=facility,
+                tokens=facility_quota.tokens_per_user,
+                tnc_hash=tnc_hash,
+                tnc_accepted_date=timezone.now(),
+            )
+        else:
+            user_quota.tnc_hash = tnc_hash
+            user_quota.tnc_accepted_date = timezone.now()
+            user_quota.save()
+
+        return Response({"detail": "Terms and Conditions accepted successfully."})

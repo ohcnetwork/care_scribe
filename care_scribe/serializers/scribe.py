@@ -77,6 +77,8 @@ class ScribeSerializer(serializers.ModelSerializer):
             "chat_model",
             "audio_model",
             "chat_model_temperature",
+            "is_feedback_positive",
+            "feedback_comments",
         ]
         read_only_fields = [
             "external_id",

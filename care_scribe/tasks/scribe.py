@@ -15,7 +15,8 @@ from google.genai import types
 from google import genai
 from google.oauth2 import service_account
 import copy
-from care_scribe.utils import chunk_questionnaires
+
+from care_scribe.utils import hash_string
 
 logger = logging.getLogger(__name__)
 
@@ -83,29 +84,45 @@ def process_ai_form_fill(external_id):
 
     is_benchmark = form.meta.get("benchmark", False)
 
-    # Verify if the user/facility has not exceeded their quota
-    user_quota = form.requested_by.scribe_quota.first()
-    facility_quota = form.requested_in_facility.scribe_quota.first() if form.requested_in_facility else None
+    # Verify if the user/facility has not exceeded their quota and has accepted the terms and conditions
+    user_quota = None
+    facility_quota = None
+    if not is_benchmark:
+        user_quota = form.requested_by.scribe_quota.filter(facility=form.requested_in_facility).first()
+        facility_quota = form.requested_in_facility.scribe_quota.filter(user=None).first()
 
-    if not user_quota and not facility_quota and not is_benchmark:
-        form.meta["error"] = "User or facility does not have a scribe quota."
-        form.status = Scribe.Status.FAILED
-        form.save()
-        return
+        if not facility_quota:
+            form.meta["error"] = "Facility does not have a scribe quota."
+            form.status = Scribe.Status.FAILED
+            form.save()
+            return
 
-    user_available_tokens = 0
-    facility_available_tokens = 0
-    if user_quota:
-        user_available_tokens = user_quota.tokens - user_quota.used()
+        if not user_quota:
+            form.meta["error"] = "User does not have a scribe quota."
+            form.status = Scribe.Status.FAILED
+            form.save()
+            return
 
-    if facility_quota:
-        facility_available_tokens = facility_quota.tokens - facility_quota.used()
+        tnc = plugin_settings.SCRIBE_TNC
+        tnc_hash = hash_string(tnc)
 
-    if user_available_tokens <= 0 and facility_available_tokens <= 0 and not is_benchmark:
-        form.meta["error"] = "User or facility has exceeded their scribe quota."
-        form.status = Scribe.Status.FAILED
-        form.save()
-        return
+        if user_quota.tnc_hash != tnc_hash:
+            form.meta["error"] = "User has not accepted the latest terms and conditions."
+            form.status = Scribe.Status.FAILED
+            form.save()
+            return
+
+        if facility_quota.used >= facility_quota.tokens:
+            form.meta["error"] = "Facility has exceeded its scribe quota."
+            form.status = Scribe.Status.FAILED
+            form.save()
+            return
+
+        if user_quota.used >= facility_quota.tokens_per_user:
+            form.meta["error"] = "User has exceeded their scribe quota."
+            form.status = Scribe.Status.FAILED
+            form.save()
+            return
 
     api_provider = plugin_settings.SCRIBE_API_PROVIDER
     chat_model = plugin_settings.SCRIBE_CHAT_MODEL_NAME
@@ -122,15 +139,6 @@ def process_ai_form_fill(external_id):
 
     if form.chat_model_temperature is not None:
         temperature = form.chat_model_temperature
-
-    iterations = []
-
-    if api_provider == "google":
-        iterations = chunk_questionnaires(form.form_data, max_fields=20)
-    else:
-        iterations = chunk_questionnaires(form.form_data, max_fields=50)
-
-    logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
 
     form.meta["provider"] = api_provider
     form.meta["chat_model"] = chat_model
@@ -177,6 +185,8 @@ def process_ai_form_fill(external_id):
 
         return schema
 
+    processed_fields = {}
+
     def process_fields(fields: list):
 
         for fd in fields:
@@ -191,14 +201,34 @@ def process_ai_form_fill(external_id):
                     keys_to_remove.add("additionalProperties")
 
                 schema = remove_keys(schema, keys_to_remove)
-                output_schema["properties"][field_id] = schema
+                processed_fields[field_id] = schema
 
+    for qn in form.form_data:
+        process_fields(qn["fields"])
+
+    # divide the processed fields into chunks
+    chunk_size = 40
+
+    if api_provider == "google":
+        chunk_size = 35
+
+    processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
+
+    items = list(processed_fields_no_keys.items())
+
+    iterations = [
+        dict(items[i:i + chunk_size])
+        for i in range(0, len(items), chunk_size)
+    ]
+    logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
     full_response = {}
     meta_iterations = []
+
     for idx, iteration in enumerate(iterations):
         output_schema = {
                 "type": "object",
                 "properties": {
+                    **iteration,
                     "__scribe__transcription": {
                         "type": "string",
                         "description": "The transcription of the audio or text content, or a summary of the image content.",
@@ -229,9 +259,6 @@ def process_ai_form_fill(external_id):
         if idx > 0 or (api_provider != "google" and len(form.document_file_ids) == 0):
             del output_schema["properties"]["__scribe__transcription"]
             output_schema["required"].remove("__scribe__transcription")
-
-        for qn in iteration:
-            process_fields(qn["fields"])
 
         if api_provider != "google":
             output_schema = fill_missing_types(output_schema)
@@ -363,6 +390,7 @@ def process_ai_form_fill(external_id):
             completion_start_time = perf_counter()
 
             if api_provider == "google":
+                # print(json.dumps(output_schema, indent=2))
                 ai_response = ai_client(api_provider).models.generate_content(
                     model=chat_model,
                     contents=messages,
@@ -453,6 +481,20 @@ def process_ai_form_fill(external_id):
             form.save()
             return
 
+    total_input_tokens = sum(iteration.get("completion_input_tokens", 0) for iteration in meta_iterations)
+    total_output_tokens = sum(iteration.get("completion_output_tokens", 0) for iteration in meta_iterations)
+
+    form.chat_input_tokens = total_input_tokens
+    form.chat_output_tokens = total_output_tokens
+
     form.status = Scribe.Status.COMPLETED
+
+    # convert the keys back to the original field IDs
+    full_response = {k: full_response.get(f"q{i}") for i,(k, v) in enumerate(processed_fields.items()) if full_response.get(f"q{i}") is not None}
+    full_response["__scribe__transcription"] = form.transcript
     form.ai_response = full_response
     form.save()
+
+    if not is_benchmark:
+        user_quota.calculate_used()
+        facility_quota.calculate_used()

@@ -44,8 +44,10 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
         write_only_fields = ("associating_id",)
 
     def validate(self, attrs):
-        length = attrs.pop("length")
-        attrs["meta"] = {"length": int(length * 1000)}
+        file_type = attrs.get("file_type", None)
+        if file_type == ScribeFile.FileType.SCRIBE_AUDIO:
+            length = attrs.pop("length")
+            attrs["meta"] = {"length": int(length * 1000)}
 
         return super().validate(attrs)
 

@@ -21,6 +21,7 @@ from care_scribe.settings import plugin_settings
 from care_scribe.utils import hash_string
 
 from care.facility.models.facility import Facility
+from care.emr.models.organization import FacilityOrganizationUser
 from django.utils import timezone
 
 class ScribeQuotaFilter(filters.FilterSet):
@@ -29,11 +30,6 @@ class ScribeQuotaFilter(filters.FilterSet):
         field_name="facility__name",
         lookup_expr="icontains",
         label="Facility Name",
-    )
-    user = filters.CharFilter(
-        field_name="user__username",
-        lookup_expr="icontains",
-        label="Username",
     )
 
 
@@ -74,7 +70,9 @@ class ScribeQuotaViewSet(
         facility_quota = ScribeQuota.objects.filter(facility__external_id=facility_id, user=None).first()
         accepted_tnc = user_quota.tnc_hash == tnc_hash if user_quota else False
 
-        to_show = [facility_quota]
+        to_show = []
+        if facility_quota:
+            to_show.append(facility_quota)
         if user_quota:
             to_show.append(user_quota)
 
@@ -106,7 +104,9 @@ class ScribeQuotaViewSet(
             facility = Facility.objects.filter(external_id=facility_id).first()
             if not facility:
                 return Response({"detail": "Facility does not exist."}, status=400)
-            # Also check if user belongs to the facility (TODO)
+
+            if not FacilityOrganizationUser.objects.filter(user=user, organization__facility=facility).exists():
+                return Response({"detail": "User does not belong to the facility."}, status=403)
 
             facility_quota = ScribeQuota.objects.filter(facility=facility, user=None).first()
             if not facility_quota:

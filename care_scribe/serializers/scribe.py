@@ -122,8 +122,6 @@ class ScribeSerializer(serializers.ModelSerializer):
                 {"chat_model": "You do not have permission to set custom chat or audio models."}
             )
 
-        # TODO : Check if the user has access to the facility. This is not a very huge concern rn, but still should be done
-
         if not benchmark:
             if (self.instance and not self.instance.requested_in_facility) and not self.validated_data["requested_in_facility"]:
                 raise serializers.ValidationError({"requested_in_facility": "Invalid facility ID"})

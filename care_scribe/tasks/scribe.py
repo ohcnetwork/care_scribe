@@ -210,7 +210,7 @@ def process_ai_form_fill(external_id):
     chunk_size = 40
 
     if api_provider == "google":
-        chunk_size = 35
+        chunk_size = 20
 
     processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
 

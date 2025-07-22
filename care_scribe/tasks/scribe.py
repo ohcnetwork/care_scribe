@@ -14,9 +14,8 @@ from care_scribe.settings import plugin_settings
 from google.genai import types
 from google import genai
 from google.oauth2 import service_account
-import copy
 
-from care_scribe.utils import hash_string
+from care_scribe.utils import hash_string, remove_keys
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +61,8 @@ def process_ai_form_fill(external_id):
     base_prompt = textwrap.dedent(
         """
         You'll receive a patient's encounter (text, audio, or image). Extract all valid data from the encounter and fill the form with it.
+        Because you have to fill a chunk of the form, some fields given below may not be present in the output schema, so you may not fill them.
+        You do not need to fill all fields, only the ones that are indicated by the encounter content.
 
         Rules:
         • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
@@ -76,12 +77,16 @@ def process_ai_form_fill(external_id):
         • If no additional context exists beyond the value, DO NOT add the `note` field at all. This is non-negotiable.
 
         Current Date and Time: {current_date_time}
+
+        FORM FIELDS:
+        {fields}
     """
     )
     # Get current timezone-aware datetime
-    base_prompt = base_prompt.replace("{current_date_time}", datetime.datetime.now().isoformat())
     form = Scribe.objects.get(external_id=external_id, status=Scribe.Status.READY)
-
+    if form.prompt:
+        base_prompt = form.prompt
+    base_prompt = base_prompt.replace("{current_date_time}", datetime.datetime.now().isoformat())
     is_benchmark = form.meta.get("benchmark", False)
 
     # Verify if the user/facility has not exceeded their quota and has accepted the terms and conditions
@@ -145,72 +150,42 @@ def process_ai_form_fill(external_id):
     form.meta["audio_model"] = audio_model
 
     audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
-
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
 
-    def remove_keys(obj, keys_to_remove):
-        if isinstance(obj, dict):
-            return {k: remove_keys(v, keys_to_remove) for k, v in obj.items() if k not in keys_to_remove}
-        elif isinstance(obj, list):
-            return [remove_keys(item, keys_to_remove) for item in obj]
-        else:
-            return obj
-
-    def fill_missing_types(schema):
-        """
-        Recursively returns a new schema with any empty properties filled with 'type': 'string'
-        to satisfy OpenAI's schema requirements.
-        """
-        if not isinstance(schema, dict):
-            return schema
-
-        schema = copy.deepcopy(schema)
-
-        # Fix properties of objects
-        if schema.get("type") == "object" and "properties" in schema:
-            schema["properties"] = {key: fill_missing_types(value) for key, value in schema["properties"].items()}
-
-        # Fix arrays
-        elif schema.get("type") == "array" and "items" in schema:
-            schema["items"] = fill_missing_types(schema["items"])
-
-        # Fix anyOf / oneOf / allOf
-        for keyword in ["anyOf", "oneOf", "allOf"]:
-            if keyword in schema:
-                schema[keyword] = [fill_missing_types(sub) for sub in schema[keyword]]
-
-        # Fix missing type at the current node
-        if "type" not in schema and "properties" not in schema and "items" not in schema:
-            schema["type"] = "string"
-
-        return schema
-
     processed_fields = {}
+    field_tree = ""
 
-    def process_fields(fields: list):
-
+    def process_fields(fields: list, indent: int = 0):
+        nonlocal field_tree
         for fd in fields:
             if "fields" in fd:
-                process_fields(fd["fields"])
-            else:  # It's a Field
+                group_name = fd.get("title", "Group")
+                field_tree += "  " * indent + f"{group_name}\n"
+                process_fields(fd["fields"], indent + 1)
+            else:
                 schema = fd.get("schema", {})
                 field_id = fd.get("id", "")
-
-                keys_to_remove = {"$schema", "const", "$ref", "$defs", "property_ordering"}
-                if api_provider != "openai":
-                    keys_to_remove.add("additionalProperties")
-
-                schema = remove_keys(schema, keys_to_remove)
+                field_name = fd.get("friendlyName", field_id)
+                field_tree += "  " * indent + f"-> {field_name}\n"
                 processed_fields[field_id] = schema
+
 
     for qn in form.form_data:
         process_fields(qn["fields"])
+
+    base_prompt = base_prompt.replace("{fields}", field_tree)
+
+    keys_to_remove = {"$schema", "const", "$ref", "$defs", "property_ordering"}
+    if api_provider != "openai":
+        keys_to_remove.add("additionalProperties")
+
+    processed_fields = remove_keys(processed_fields, keys_to_remove)
 
     # divide the processed fields into chunks
     chunk_size = 40
 
     if api_provider == "google":
-        chunk_size = 20
+        chunk_size = 30
 
     processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
 
@@ -220,6 +195,7 @@ def process_ai_form_fill(external_id):
         dict(items[i:i + chunk_size])
         for i in range(0, len(items), chunk_size)
     ]
+
     logger.info(str(len(iterations)) + " chunks to process for form " + str(form.external_id))
     full_response = {}
     meta_iterations = []
@@ -254,25 +230,23 @@ def process_ai_form_fill(external_id):
                 "{transcript_instructions}",
                 ""
             )
+
         this_iteration = {}
 
         if idx > 0 or (api_provider != "google" and len(form.document_file_ids) == 0):
             del output_schema["properties"]["__scribe__transcription"]
             output_schema["required"].remove("__scribe__transcription")
 
-        if api_provider != "google":
-            output_schema = fill_missing_types(output_schema)
-
         logger.info(f"=== Processing AI form fill {form.external_id} ===")
 
-        this_iteration = {"function": output_schema, "prompt": (form.prompt or prompt)}
+        this_iteration = {"function": output_schema, "prompt": prompt }
 
         if api_provider == "google":
 
             messages = [
                 types.Content(
                     role="user",
-                    parts=[types.Part.from_text(text=form.prompt or prompt)],
+                    parts=[types.Part.from_text(text=prompt)],
                 )
             ]
 
@@ -283,7 +257,7 @@ def process_ai_form_fill(external_id):
                     "content": [
                         {
                             "type": "text",
-                            "text": form.prompt or prompt,
+                            "text": prompt,
                         }
                     ],
                 },

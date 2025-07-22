@@ -12,7 +12,7 @@ jobs:
         shell: bash
         env:
           DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          APP_ID:   ${{ secrets.DIGITALOCEAN_APP_ID }}
+          APP_ID:   ${{ secrets.DIGITAL_OCEAN_APP_ID }}
         run: |
           set -euo pipefail
   

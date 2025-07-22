@@ -1,0 +1,19 @@
+name: Manual Deploy to DigitalOcean (care-staging)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy_to_digital_ocean:
+    name: Deploy to DigitalOcean App Platform
+    runs-on: ubuntu-latest
+
+    env:
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+    steps:
+      - name: Deploy to DigitalOcean
+        uses: digitalocean/app_action@v1.1.7
+        with:
+          app_name: care-staging
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}

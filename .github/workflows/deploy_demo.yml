@@ -18,13 +18,7 @@ jobs:
   
           echo "🔑 Using app: $APP_ID"
           BODY='{"force_build":true}'
-  
           echo "::group::Calling DigitalOcean Apps API"
-          # Partially print token
-          echo "Using DO_TOKEN: ${DO_TOKEN:0:6}...."
-          
-          # Print JSON body compactly (first 100 characters)
-          echo "Request Body: $(echo "$BODY" | head -c 100)..."
           curl -sSf -X POST \
             -H "Authorization: Bearer ${DO_TOKEN}" \
             -H "Content-Type: application/json" \

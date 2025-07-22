@@ -60,26 +60,28 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
 def process_ai_form_fill(external_id):
     base_prompt = textwrap.dedent(
         """
-        You'll receive a patient's encounter (text, audio, or image). Extract all valid data from the encounter and fill the form with it.
-        Because you have to fill a chunk of the form, some fields given below may not be present in the output schema, so you may not fill them.
-        You do not need to fill all fields, only the ones that are indicated by the encounter content.
+        You will receive a patient's encounter in the form of text, audio, or image. Your task is to extract all relevant data and populate the specified form fields accordingly. Follow the instructions and rules meticulously to ensure accuracy and compliance.
 
-        Rules:
-        • Use only the readable term for coded entries (e.g., “Brain Hemorrhage” from “A32Q Brain Hemorrhage”).
-        • Translate non-English content to English before responding.
-        {transcript_instructions}
+        Instructions:
+        1. Analyze the encounter content thoroughly to identify and extract valid data.
+        2. Only fill the form fields that are explicitly mentioned in the encounter. Do not make assumptions or infer values.
+        3. Use readable terms for coded entries (e.g., convert “A32Q Brain Hemorrhage” to “Brain Hemorrhage”).
+        4. If the encounter contains non-English content, translate it to English before processing.
+        5. If a field is not mentioned in the encounter, leave it unfilled rather than entering an empty value.
 
-        Notes Handling (very important):
-        • ONLY include the `note` field **if** there is additional context that cannot be captured in the `value`.
-            - Example: “Patient's SPO2 is 20%, but had spiked to 50% an hour ago” → `value: 20%`, `note: Spiked to 50% an hour ago`
-            - Example: “Patient's SPO2 is 20%” → `value: 20%`, **do not add a `note`**
-        • NEVER duplicate the value in the `note`. If you do so, it will be treated as a **critical failure** in care.
-        • If no additional context exists beyond the value, DO NOT add the `note` field at all. This is non-negotiable.
+        Notes Handling:
+        - Include the `note` field only if there is additional context that cannot be captured in the `value`.
+        - For example, if the encounter states, “Patient's SPO2 is 20%, but had spiked to 50% an hour ago,” then you should fill `value: 20%` and `note: Spiked to 50% an hour ago`.
+        - If the encounter simply states, “Patient's SPO2 is 20%,” do not add a `note`.
+        - Never duplicate the value in the `note` field. Doing so will be considered a critical failure.
+        - If additional context does not exist beyond the value, do not include the `note` field at all.
 
         Current Date and Time: {current_date_time}
 
         FORM FIELDS:
         {fields}
+
+        Ensure that you adhere to all rules and guidelines provided to maintain data integrity and accuracy in patient care documentation.
     """
     )
     # Get current timezone-aware datetime
@@ -185,7 +187,7 @@ def process_ai_form_fill(external_id):
     chunk_size = 40
 
     if api_provider == "google":
-        chunk_size = 30
+        chunk_size = 32
 
     processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
 
@@ -242,7 +244,6 @@ def process_ai_form_fill(external_id):
         this_iteration = {"function": output_schema, "prompt": prompt }
 
         if api_provider == "google":
-
             messages = [
                 types.Content(
                     role="user",
@@ -364,7 +365,7 @@ def process_ai_form_fill(external_id):
             completion_start_time = perf_counter()
 
             if api_provider == "google":
-                # print(json.dumps(output_schema, indent=2))
+                print(json.dumps(output_schema))
                 ai_response = ai_client(api_provider).models.generate_content(
                     model=chat_model,
                     contents=messages,
@@ -399,6 +400,7 @@ def process_ai_form_fill(external_id):
                 this_iteration["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
                 this_iteration["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
                 this_iteration["completion_time"] = completion_time
+                this_iteration["output"] = ai_response_json
 
             else:
 

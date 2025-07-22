@@ -17,7 +17,7 @@ jobs:
           set -euo pipefail
   
           echo "🔑 Using app: $APP_ID"
-          BODY='{"force_rebuild":true}'
+          BODY='{"force_build":true}'
   
           echo "::group::Calling DigitalOcean Apps API"
           curl -sSf -X POST \

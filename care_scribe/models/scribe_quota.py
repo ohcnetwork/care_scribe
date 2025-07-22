@@ -58,4 +58,8 @@ class ScribeQuota(BaseModel):
 
     def save(self, *args, **kwargs):
         self.full_clean()  # Ensure clean is called before saving
+
+        if self.deleted and self.facility and not self.user:
+            ScribeQuota.objects.filter(facility=self.facility).exclude(pk=self.pk).delete()
+
         super().save(*args, **kwargs)

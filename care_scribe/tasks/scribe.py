@@ -78,7 +78,7 @@ def process_ai_form_fill(external_id):
 
         Current Date and Time: {current_date_time}
 
-        FORM FIELDS:
+        FORM FIELDS (JUST FOR REFERENCE, DOES NOT MEAN YOU SHOULD FILL THEM ALL):
         {fields}
 
         Ensure that you adhere to all rules and guidelines provided to maintain data integrity and accuracy in patient care documentation.

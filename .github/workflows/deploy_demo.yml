@@ -17,3 +17,4 @@ jobs:
         with:
           app_name: care-staging
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          print_build_logs: true

@@ -14,7 +14,6 @@ from care_scribe.settings import plugin_settings
 from google.genai import types
 from google import genai
 from google.oauth2 import service_account
-from django.db import transaction
 
 from care_scribe.utils import hash_string, remove_keys
 
@@ -54,8 +53,7 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
 
 
 @shared_task
-def process_ai_form_fill(external_id, base_chunk_size=None):
-    print(f"BASE CHUNK SIZE: {base_chunk_size}")
+def process_ai_form_fill(external_id):
     base_prompt = textwrap.dedent(
         """
         You will receive a patient's encounter in the form of text, audio, or image. Your task is to extract all relevant data and populate the specified form fields accordingly. Follow the instructions and rules meticulously to ensure accuracy and compliance.
@@ -175,11 +173,10 @@ def process_ai_form_fill(external_id, base_chunk_size=None):
     processed_fields = remove_keys(processed_fields, keys_to_remove)
 
     # divide the processed fields into chunks
+    chunk_size = 40
 
-    chunk_size = base_chunk_size or 40
-    if not base_chunk_size and api_provider == "google":
+    if api_provider == "google":
         chunk_size = 200
-
 
     processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
 
@@ -347,7 +344,6 @@ def process_ai_form_fill(external_id, base_chunk_size=None):
             if api_provider == "google":
 
                 output_schema_hash = hash_string(json.dumps(output_schema, sort_keys=True))
-
                 cache_list = ai_client(api_provider).caches.list()
 
                 try:
@@ -381,12 +377,8 @@ def process_ai_form_fill(external_id, base_chunk_size=None):
                             )
                         )
                     except Exception as e:
+                        print(f"Error creating cache: {e}")
                         existing_cache = None
-                        if not base_chunk_size and idx == 0:
-                            form.status = Scribe.Status.READY
-                            form.save()
-                            transaction.on_commit(lambda: process_ai_form_fill.delay(external_id, base_chunk_size=20))
-                            return
 
                 will_use_cache = existing_cache and existing_cache.usage_metadata.total_token_count > 1024
                 if will_use_cache:

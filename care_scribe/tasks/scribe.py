@@ -62,6 +62,7 @@ def process_ai_form_fill(external_id):
         1. Analyze the encounter content thoroughly to identify and extract valid data.
         2. Use readable terms for coded entries (e.g., convert “A32Q Brain Hemorrhage” to “Brain Hemorrhage”).
         3. If the encounter contains non-English content, translate it to English before processing.
+        4. If the audio or image contains no relevant data, return an empty string for the transcription field, and do not assume any context or information.
 
         Notes Handling:
         - Populate the `note` field only if there is additional context that cannot be captured in the `value`.

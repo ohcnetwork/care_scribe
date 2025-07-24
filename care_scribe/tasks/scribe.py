@@ -66,8 +66,8 @@ def process_ai_form_fill(external_id):
         Notes Handling:
         - Populate the `note` field only if there is additional context that cannot be captured in the `value`.
         - For example, if the encounter states, “Patient's SPO2 is 20%, but had spiked to 50% an hour ago,” then you should fill `value: 20%` and `note: Spiked to 50% an hour ago`.
-        - If the encounter simply states, “Patient's SPO2 is 20%,” set note as `null`.
-        - If additional context does not exist beyond the value, set `note` field to `null`.
+        - If the encounter simply states, “Patient's SPO2 is 20%,” set note as null (NEVER PUT null as a string).
+        - If additional context does not exist beyond the value, set `note` field to null (NEVER PUT null as a string).
 
         Current Date and Time: {current_date_time}
     """

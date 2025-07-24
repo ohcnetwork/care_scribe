@@ -37,12 +37,8 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
         b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
 
         if b64_credentials:
-            print("Using base64 credentials")
             info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
             credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
-            print(credentials)
-        else:
-            print("Using file credentials")
 
         AiClient = genai.Client(
             vertexai=True,
@@ -64,24 +60,16 @@ def process_ai_form_fill(external_id):
 
         Instructions:
         1. Analyze the encounter content thoroughly to identify and extract valid data.
-        2. Only fill the form fields that are explicitly mentioned in the encounter. Do not make assumptions or infer values.
-        3. Use readable terms for coded entries (e.g., convert “A32Q Brain Hemorrhage” to “Brain Hemorrhage”).
-        4. If the encounter contains non-English content, translate it to English before processing.
-        5. If a field is not mentioned in the encounter, leave it unfilled rather than entering an empty value.
+        2. Use readable terms for coded entries (e.g., convert “A32Q Brain Hemorrhage” to “Brain Hemorrhage”).
+        3. If the encounter contains non-English content, translate it to English before processing.
 
         Notes Handling:
-        - Include the `note` field only if there is additional context that cannot be captured in the `value`.
+        - Populate the `note` field only if there is additional context that cannot be captured in the `value`.
         - For example, if the encounter states, “Patient's SPO2 is 20%, but had spiked to 50% an hour ago,” then you should fill `value: 20%` and `note: Spiked to 50% an hour ago`.
-        - If the encounter simply states, “Patient's SPO2 is 20%,” do not add a `note`.
-        - Never duplicate the value in the `note` field. Doing so will be considered a critical failure.
-        - If additional context does not exist beyond the value, do not include the `note` field at all.
+        - If the encounter simply states, “Patient's SPO2 is 20%,” set note as `null`.
+        - If additional context does not exist beyond the value, set `note` field to `null`.
 
         Current Date and Time: {current_date_time}
-
-        FORM FIELDS (JUST FOR REFERENCE, DOES NOT MEAN YOU SHOULD FILL THEM ALL):
-        {fields}
-
-        Ensure that you adhere to all rules and guidelines provided to maintain data integrity and accuracy in patient care documentation.
     """
     )
     # Get current timezone-aware datetime
@@ -175,7 +163,7 @@ def process_ai_form_fill(external_id):
     for qn in form.form_data:
         process_fields(qn["fields"])
 
-    base_prompt = base_prompt.replace("{fields}", field_tree)
+    # base_prompt = base_prompt.replace("{fields}", field_tree)
 
     keys_to_remove = {"$schema", "const", "$ref", "$defs", "property_ordering"}
     if api_provider != "openai":
@@ -187,7 +175,7 @@ def process_ai_form_fill(external_id):
     chunk_size = 40
 
     if api_provider == "google":
-        chunk_size = 32
+        chunk_size = 200
 
     processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
 
@@ -365,18 +353,78 @@ def process_ai_form_fill(external_id):
             completion_start_time = perf_counter()
 
             if api_provider == "google":
-                print(json.dumps(output_schema))
+
+                output_schema_hash = hash_string(json.dumps(output_schema, sort_keys=True))
+
+                cache_list = ai_client(api_provider).caches.list()
+
+                try:
+                    existing_cache =  next((cache for cache in cache_list if cache.display_name == f"scribe_{output_schema_hash}" and cache.model == chat_model), None)
+                    print(f"Using existing cache: {existing_cache.name}")
+                except:
+                    existing_cache = None
+
+                if not existing_cache:
+                    print(f"Creating new cache for scribe_{output_schema_hash}")
+                    try:
+                        existing_cache = ai_client(api_provider).caches.create(
+                            model=chat_model,
+                            config=types.CreateCachedContentConfig(
+                                display_name=f"scribe_{output_schema_hash}",
+                                tools=[
+                                    types.Tool(
+                                        function_declarations=[{
+                                            "name": "process_ai_form_fill",
+                                            "description": "Process the AI form fill and return the filled form data.",
+                                            "parameters": output_schema,
+                                        }]
+                                    )
+                                ],
+                                tool_config= types.ToolConfig(
+                                    function_calling_config=types.FunctionCallingConfig(
+                                        mode=types.FunctionCallingConfigMode.ANY
+                                    )
+                                ),
+                                ttl="86400s"
+                            )
+                        )
+                    except Exception as e:
+                        existing_cache = None
+
+                will_use_cache = existing_cache and existing_cache.usage_metadata.total_token_count > 1024
+                if will_use_cache:
+                    this_iteration["cache_name"] = existing_cache.name
+                    print(f"CACHED TOKEN COUNT: {existing_cache.usage_metadata.total_token_count}")
+
+                else:
+                    print(f"Cache is not large enough, will not use it for this iteration")
+
                 ai_response = ai_client(api_provider).models.generate_content(
                     model=chat_model,
                     contents=messages,
                     config=types.GenerateContentConfig(
                         temperature=temperature,
-                        response_mime_type="application/json",
-                        response_schema=output_schema,
-                        # thinking_config=types.ThinkingConfig(
-                        #     thinking_budget=1024,
-                        #     include_thoughts=True,
-                        # )
+                        # response_mime_type="application/json",
+                        # response_schema=output_schema,
+                        cached_content=existing_cache.name if will_use_cache else None,
+                        tool_config=types.ToolConfig(
+                            function_calling_config=types.FunctionCallingConfig(
+                                mode=types.FunctionCallingConfigMode.ANY,
+                            ),
+                        ) if not will_use_cache else None,
+                        tools=[
+                            types.Tool(
+                                function_declarations=[{
+                                    "name": "process_ai_form_fill",
+                                    "description": "Process the AI form fill and return the filled form data.",
+                                    "parameters": output_schema,
+                                }]
+                            )
+                        ] if not will_use_cache else None,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=0 if "pro" not in chat_model else 1024,
+                            # include_thoughts=True,
+                        ) if "2.5" in chat_model else None
                     ),
                 )
 
@@ -389,7 +437,7 @@ def process_ai_form_fill(external_id):
                 if ai_response.candidates[0].finish_reason != types.FinishReason.STOP:
                     raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)}")
 
-                ai_response_json = ai_response.parsed
+                ai_response_json = ai_response.candidates[0].content.parts[0].function_call.args
 
                 completion_time = perf_counter() - completion_start_time
 
@@ -399,6 +447,7 @@ def process_ai_form_fill(external_id):
                 this_iteration["completion_id"] = ai_response.response_id
                 this_iteration["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
                 this_iteration["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
+                this_iteration["completion_cached_tokens"] = ai_response.usage_metadata.cached_content_token_count
                 this_iteration["completion_time"] = completion_time
                 this_iteration["output"] = ai_response_json
 

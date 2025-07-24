@@ -203,39 +203,27 @@ def process_ai_form_fill(external_id):
                 "required": ["__scribe__transcription"],
         }
         initiation_time = perf_counter()
-        if idx == 0 and api_provider == "google":
-            if total_audio_duration > (3 * 60 * 1000):
-                prompt = base_prompt.replace(
-                    "{transcript_instructions}",
-                    "• If specified in tool call, after filling the form, return a short summarized transcription of the audio content, focusing on key points and insights in English as `__scribe__transcription`.",
-                )
+
+        if idx == 0:
+            if api_provider == "google" and total_audio_duration > (3 * 60 * 1000):
                 output_schema["properties"]["__scribe__transcription"]["description"] = "A short summarized transcription of the audio content, focusing on key points and insights in English."
-            else:
-                prompt = base_prompt.replace(
-                    "{transcript_instructions}",
-                    "• If specified in tool call, after filling the form, return the transcription with the original content (text, transcript, or image summary) in English as `__scribe__transcription`.",
-                )
+
+            if len(form.document_file_ids) > 0:
+                output_schema["properties"]["__scribe__transcription"]["description"] = "A short summarized transcription of the image content, focusing on key points and insights in English."
+
         else:
-            prompt = base_prompt.replace(
-                "{transcript_instructions}",
-                ""
-            )
-
-        this_iteration = {}
-
-        if idx > 0 or (api_provider != "google" and len(form.document_file_ids) == 0):
             del output_schema["properties"]["__scribe__transcription"]
             output_schema["required"].remove("__scribe__transcription")
 
         logger.info(f"=== Processing AI form fill {form.external_id} ===")
 
-        this_iteration = {"function": output_schema, "prompt": prompt }
+        this_iteration = {"function": output_schema, "prompt": base_prompt }
 
         if api_provider == "google":
             messages = [
                 types.Content(
                     role="user",
-                    parts=[types.Part.from_text(text=prompt)],
+                    parts=[types.Part.from_text(text=base_prompt)],
                 )
             ]
 
@@ -246,7 +234,7 @@ def process_ai_form_fill(external_id):
                     "content": [
                         {
                             "type": "text",
-                            "text": prompt,
+                            "text": base_prompt,
                         }
                     ],
                 },

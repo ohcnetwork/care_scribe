@@ -12,13 +12,12 @@ jobs:
         shell: bash
         env:
           DO_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          APP_ID:   ${{ secrets.DIGITALOCEAN_APP_ID }}
+          APP_ID:   ${{ secrets.DIGITAL_OCEAN_APP_ID }}
         run: |
           set -euo pipefail
   
           echo "🔑 Using app: $APP_ID"
-          BODY='{"force_rebuild":true}'
-  
+          BODY='{"force_build":true}'
           echo "::group::Calling DigitalOcean Apps API"
           curl -sSf -X POST \
             -H "Authorization: Bearer ${DO_TOKEN}" \

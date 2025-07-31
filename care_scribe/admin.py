@@ -1,8 +1,8 @@
 from django.contrib import admin
 
+from care_scribe.models.scribe_quota import ScribeQuota
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
-
 
 @admin.register(Scribe)
 class ScribeAdmin(admin.ModelAdmin):
@@ -12,3 +12,7 @@ class ScribeAdmin(admin.ModelAdmin):
 @admin.register(ScribeFile)
 class ScribeFileAdmin(admin.ModelAdmin):
     search_fields = ["file_type", "uploaded_by__username"]
+
+@admin.register(ScribeQuota)
+class ScribeQuotaAdmin(admin.ModelAdmin):
+    search_fields = ["user__username", "facility__name"]

@@ -12,54 +12,87 @@ form_data_schema = {
     "items": {
         "type": "object",
         "properties": {
-            "friendlyName": {"type": "string"},
-            "id": {"type": "string"},
-            "current": {"type": ["number","string","boolean","object","array", "null"]},
+            "title": {"type": "string"},
             "description": {"type": "string"},
-            "type": {"type": "string"},
-            "example": {"type": "string"},
-            "options": {
+            "fields": {
                 "type": "array",
                 "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "anyOf": [
-                                {"type": "integer"},
-                                {"type": "string"},
-                            ]
+                    "anyOf": [
+                        {
+                            # Field object
+                            "type": "object",
+                            "properties": {
+                                "friendlyName": {"type": "string"},
+                                "id": {"type": "string"},
+                                "current": {"type": ["number", "string", "boolean", "object", "array", "null"]},
+                                "type": {"type": "string"},
+                                "structuredType": {
+                                    "anyOf": [
+                                        {"type": "string"},
+                                        {"type": "null"},
+                                    ]
+                                },
+                                "repeats": {"type": "boolean"},
+                                "options": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "anyOf": [
+                                                    {"type": "integer"},
+                                                    {"type": "string"},
+                                                ]
+                                            },
+                                            "text": {"type": "string"},
+                                        },
+                                        "required": ["id", "text"],
+                                    },
+                                },
+                            },
+                            "required": ["friendlyName", "id", "type", "current"],
                         },
-                        "text": {"type": "string"},
-                    },
-                    "required": ["id", "text"],
+                        {
+                            # Nested questionnaire object
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string"},
+                                "description": {"type": "string"},
+                                "fields": {"$ref": "#/items/properties/fields"},
+                            },
+                            "required": ["title", "fields"],
+                        },
+                    ]
                 },
             },
         },
-        "required": ["friendlyName", "id", "description", "type", "example", "current"],
+        "required": ["title", "fields"],
     },
 }
 
 meta_schema = {
     "type": "object",
     "properties": {
-        "provider" : {
+        "provider": {
             "type": "string",
             "enum": ["google", "openai", "azure"],
         },
         "transcription_time": {"type": "integer"},
-        "completion_output_tokens" : {"type": "integer"},
-        "completion_input_tokens" : {"type": "integer"},
+        "completion_output_tokens": {"type": "integer"},
+        "completion_input_tokens": {"type": "integer"},
         "completion_time": {"type": "integer"},
-        "completion_id" : {"type": "string"},
+        "completion_id": {"type": "string"},
     },
 }
+
 
 def validate_json_schema(value):
     try:
         jsonschema.validate(value, form_data_schema)
     except jsonschema.ValidationError as e:
         raise jsonschema.ValidationError(f"Invalid JSON data: {e}")
-    
+
+
 def validate_json_schema_meta(value):
     try:
         jsonschema.validate(value, meta_schema)
@@ -81,17 +114,21 @@ class Scribe(BaseModel):
     requested_in_facility = models.ForeignKey(Facility, null=True, on_delete=models.SET_NULL)
     requested_in_encounter = models.ForeignKey(Encounter, null=True, on_delete=models.SET_NULL)
 
-    form_data = models.JSONField(
-        validators=[validate_json_schema], null=True, blank=True
-    )
+    form_data = models.JSONField(validators=[validate_json_schema], null=True, blank=True)
     transcript = models.TextField(null=True, blank=True)
     text = models.TextField(null=True, blank=True)
-    ai_response = models.TextField(null=True, blank=True)
-    status = models.CharField(
-        max_length=50, choices=Status.choices, default=Status.CREATED
-    )
+    ai_response = models.JSONField(null=True, blank=True, default=dict)
+    status = models.CharField(max_length=50, choices=Status.choices, default=Status.CREATED)
     prompt = models.TextField(null=True, blank=True)
     meta = models.JSONField(null=True, blank=True, default=dict, validators=[validate_json_schema_meta])
+    chat_model = models.CharField(max_length=100, null=True, blank=True)
+    audio_model = models.CharField(max_length=100, null=True, blank=True)
+    chat_model_temperature = models.FloatField(null=True, blank=True)
+
+    is_feedback_positive = models.BooleanField(null=True, blank=True, help_text="Whether the user has given positive feedback on the AI response")
+    feedback_comments = models.TextField(null=True, blank=True, help_text="Details of the feedback provided by the user")
+    chat_input_tokens = models.IntegerField(null=True, blank=True, help_text="Number of tokens used in the chat input")
+    chat_output_tokens = models.IntegerField(null=True, blank=True, help_text="Number of tokens used in the chat output")
 
     @property
     def audio_file_ids(self):

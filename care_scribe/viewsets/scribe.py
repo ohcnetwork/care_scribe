@@ -15,6 +15,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters as rest_framework_filters
 from rest_framework.pagination import LimitOffsetPagination
 from django_filters import rest_framework as filters
+from django.db import transaction
+from django.db.models import Q
+
 
 class ScribeFilter(filters.FilterSet):
     status = filters.ChoiceFilter(
@@ -37,7 +40,16 @@ class ScribeFilter(filters.FilterSet):
         lookup_expr="exact",
         label="Encounter ID",
     )
-   
+    benchmark = filters.BooleanFilter(
+        label="Benchmark",
+        method="filter_benchmark",
+    )
+
+    def filter_benchmark(self, queryset, name, value):
+        q = Q(meta__has_key="benchmark")
+        return queryset.filter(q) if value else queryset.exclude(q)
+
+
 class ScribeViewset(
     ListModelMixin,
     RetrieveModelMixin,
@@ -66,4 +78,4 @@ class ScribeViewset(
     def perform_update(self, serializer):
         instance = serializer.save()
         if instance.status == Scribe.Status.READY:
-            process_ai_form_fill.delay(instance.external_id)
+            transaction.on_commit(lambda: process_ai_form_fill.delay(instance.external_id))

@@ -91,7 +91,7 @@ class PluginSettings:  # pragma: no cover
                 'Invalid value for "SCRIBE_API_PROVIDER". '
                 'Please set the "SCRIBE_API_PROVIDER" to "openai", "google" or "azure".'
             )
-        
+
         if getattr(self, "SCRIBE_API_PROVIDER") == "openai":
             for setting in ("SCRIBE_PROVIDER_API_KEY",):
                 if not getattr(self, setting):
@@ -107,7 +107,7 @@ class PluginSettings:  # pragma: no cover
                         f'The "{setting}" setting is required when using Azure API. '
                         f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                     )
-                
+
         if getattr(self, "SCRIBE_API_PROVIDER") == "google":
             for setting in ("SCRIBE_GOOGLE_PROJECT_ID", "SCRIBE_GOOGLE_LOCATION"):
                 if not getattr(self, setting):
@@ -133,7 +133,8 @@ REQUIRED_SETTINGS = {
 }
 
 DEFAULTS = {
-    "SCRIBE_PROVIDER_API_KEY": "",
+    "SCRIBE_OPENAI_API_KEY": "",
+    "SCRIBE_AZURE_API_KEY": "",
     "SCRIBE_AUDIO_MODEL_NAME": "whisper-1",
     "SCRIBE_CHAT_MODEL_NAME": "gpt-4o",
     "SCRIBE_API_PROVIDER": "openai",
@@ -141,6 +142,7 @@ DEFAULTS = {
     "SCRIBE_AZURE_ENDPOINT": "",
     "SCRIBE_GOOGLE_PROJECT_ID" : "",
     "SCRIBE_GOOGLE_LOCATION" : "",
+    "SCRIBE_TNC": "<ol><li><strong>Data Storage and Privacy:</strong> All patient data will be stored on state-owned cloud infrastructure managed by the Health Department.</li><li><strong>User Responsibility:</strong> CARE Scribe is a supportive data entry tool. All transcriptions must be solely reviewed and confirmed by the attending doctor or nurse. eGov will not, and does not undertake any responsibility or liability to review and confirm the transcripts of the audio data entered into the tool, and shall bear no liability for errors arising from unverified AI-generated content.</li><li><strong>Access Control:</strong> Access to CARE Scribe (including for use of the tool and the transcripts) will be limited to authorized users via secure, role-based authentication, which shall be the responsibility of the Health Department. All usage will be subject to periodic audit and monitoring.</li><li><strong>Legal and Security Compliance:</strong> All data processing will be fully compliant with applicable data protection laws.</li><li><strong>Third-party Service Dependency:</strong> CARE Scribe relies on third-party AI APIs for transcription. eGov does not provide any warranties regarding the same, and will not be liable for service disruptions, inaccuracies, or changes originating from these external providers.</li></ol>"
 }
 
 plugin_settings = PluginSettings(

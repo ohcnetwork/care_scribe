@@ -93,7 +93,7 @@ class PluginSettings:  # pragma: no cover
             )
 
         if getattr(self, "SCRIBE_API_PROVIDER") == "openai":
-            for setting in ("SCRIBE_PROVIDER_API_KEY",):
+            for setting in ("SCRIBE_OPENAI_API_KEY",):
                 if not getattr(self, setting):
                     raise ImproperlyConfigured(
                         f'The "{setting}" setting is required when using OpenAI API. '
@@ -101,7 +101,7 @@ class PluginSettings:  # pragma: no cover
                     )
 
         if getattr(self, "SCRIBE_API_PROVIDER") == "azure":
-            for setting in ("SCRIBE_AZURE_API_VERSION", "SCRIBE_AZURE_ENDPOINT"):
+            for setting in ("SCRIBE_AZURE_API_VERSION", "SCRIBE_AZURE_ENDPOINT", "SCRIBE_AZURE_API_KEY"):
                 if not getattr(self, setting):
                     raise ImproperlyConfigured(
                         f'The "{setting}" setting is required when using Azure API. '

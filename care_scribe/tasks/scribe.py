@@ -321,11 +321,11 @@ def process_ai_form_fill(external_id):
         if api_provider == "google":
 
             output_schema_hash = hash_string(json.dumps(output_schema, sort_keys=True))
-            cache_list = list(ai_client(api_provider).caches.list())
-
             try:
+                cache_list = list(ai_client(api_provider).caches.list())
                 existing_cache = next((cache for cache in cache_list if cache.display_name == f"scribe_{output_schema_hash}" and cache.model.split("/")[-1] == chat_model), None)
-            except:
+            except Exception as e:
+                logger.error(f"Error fetching cache: {e}")
                 existing_cache = None
 
             tools = [
@@ -391,16 +391,13 @@ def process_ai_form_fill(external_id):
 
             ai_response_json = next(part.function_call.args for part in ai_response.candidates[0].content.parts if part.function_call)
 
-            completion_time = perf_counter() - completion_start_time
-
             form.transcript = ai_response_json["__scribe__transcription"]
 
             form.meta["completion_id"] = ai_response.response_id
             form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
             form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
             form.meta["completion_cached_tokens"] = ai_response.usage_metadata.cached_content_token_count
-            form.meta["completion_time"] = completion_time
-            form.chat_input_tokens = ai_response.usage_metadata.prompt_token_count + ai_response.usage_metadata.cached_content_token_count
+            form.chat_input_tokens = ai_response.usage_metadata.prompt_token_count + ai_response.usage_metadata.cached_content_token_count if ai_response.usage_metadata.cached_content_token_count else 0
             form.chat_output_tokens = ai_response.usage_metadata.candidates_token_count
 
         else:
@@ -424,7 +421,6 @@ def process_ai_form_fill(external_id):
             )
 
             try:
-                print(f"AI response: {ai_response.choices[0].message.content}")
                 ai_response_json = json.loads(ai_response.choices[0].message.content)
 
             except Exception as e:
@@ -440,7 +436,6 @@ def process_ai_form_fill(external_id):
             form.meta["completion_cached_tokens"] = ai_response.usage.prompt_tokens_details.cached_tokens
             form.chat_input_tokens = ai_response.usage.prompt_tokens
             form.chat_output_tokens = ai_response.usage.completion_tokens
-            form.meta["completion_time"] = perf_counter() - completion_start_time
 
         logger.info(f"AI response: {ai_response_json}")
 
@@ -452,14 +447,14 @@ def process_ai_form_fill(external_id):
         form.save()
         return
 
+    form.meta["completion_time"] = perf_counter() - completion_start_time
     form.status = Scribe.Status.COMPLETED
 
     # convert the keys back to the original field IDs
-    full_response = {k: ai_response_json.get(f"q{i}") for i,(k, v) in enumerate(processed_fields.items()) if ai_response_json.get(f"q{i}") is not None}
-    full_response["__scribe__transcription"] = form.transcript
-    form.ai_response = full_response
+    form.ai_response = {k: ai_response_json.get(f"q{i}") for i,(k, v) in enumerate(processed_fields.items()) if ai_response_json.get(f"q{i}") is not None}
     form.save()
 
+    # Update the user and facility quotas
     if not is_benchmark:
         user_quota.calculate_used()
         facility_quota.calculate_used()

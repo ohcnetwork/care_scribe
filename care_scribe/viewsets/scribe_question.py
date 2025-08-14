@@ -8,8 +8,8 @@ from rest_framework.mixins import (
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
 
-from care_scribe.care_scribe.models.scribe_question import ScribeQuestionnaireInstruction
-from care_scribe.care_scribe.serializers.scribe_question import ScribeQuestionnaireInstructionsSerializer
+from care_scribe.models.scribe_question import ScribeQuestionnaireInstruction
+from care_scribe.serializers.scribe_question import ScribeQuestionnaireInstructionsSerializer
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters as rest_framework_filters

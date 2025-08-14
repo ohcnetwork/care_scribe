@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from care_scribe.care_scribe.models.scribe_question import ScribeQuestionnaireInstruction
+from care_scribe.models.scribe_question import ScribeQuestionnaireInstruction
 from care_scribe.models.scribe_quota import ScribeQuota
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile

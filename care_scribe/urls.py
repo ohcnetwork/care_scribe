@@ -1,6 +1,6 @@
 from rest_framework.routers import DefaultRouter
 
-from care_scribe.care_scribe.viewsets.scribe_question import ScribeQuestionnaireInstructionsViewSet
+from care_scribe.viewsets.scribe_question import ScribeQuestionnaireInstructionsViewSet
 from care_scribe.viewsets.scribe_quota import ScribeQuotaViewSet
 from care_scribe.viewsets.scribe import ScribeViewset
 from care_scribe.viewsets.scribe_file import FileUploadViewSet

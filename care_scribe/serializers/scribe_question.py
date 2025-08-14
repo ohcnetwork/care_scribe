@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from care.emr.models.questionnaire import Questionnaire
-from care_scribe.care_scribe.models.scribe_question import ScribeQuestionnaireInstruction
+from care_scribe.models.scribe_question import ScribeQuestionnaireInstruction
 
 class ScribeQuestionnaireInstructionsSerializer(serializers.ModelSerializer):
 

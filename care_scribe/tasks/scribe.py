@@ -101,7 +101,8 @@ def process_ai_form_fill(external_id):
         2. Use readable terms for coded entries (e.g., convert “A32Q Brain Hemorrhage” to “Brain Hemorrhage”).
         3. If the encounter contains non-English content, translate it to English before processing.
         4. If the audio or image contains no relevant data, return an empty string for the transcription field, and do not assume any context or information.
-        5. You do not have to fill all fields. Only fill the fields that are relevant to the encounter. Let the rest have a null value.
+        5. Do not assume any fields. ONLY fill in what is mentioned in the audio/image.
+        6. In cases where the audio is silence or illegible, return an empty string for the transcription field.
 
         {qn_and_group_descriptions}
 
@@ -387,23 +388,36 @@ def process_ai_form_fill(external_id):
             else:
                 logger.info(f"Cache is not large enough, will not use it for this iteration")
 
-            ai_response = ai_client(api_provider).models.generate_content(
-                model=chat_model,
-                contents=messages,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    cached_content=existing_cache.name if will_use_cache else None,
-                    tool_config=tool_config if not will_use_cache else None,
-                    tools=tools if not will_use_cache else None,
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=0 if "pro" not in chat_model else 1024,
-                        include_thoughts=True if "pro" in chat_model else False,
-                    ) if "2.5" in chat_model else None
-                ),
-            )
+            def generate_response(retry=0):
+                ai_resp = ai_client(api_provider).models.generate_content(
+                    model=chat_model,
+                    contents=messages,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        cached_content=existing_cache.name if will_use_cache else None,
+                        tool_config=tool_config if not will_use_cache else None,
+                        tools=tools if not will_use_cache else None,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=0 if "pro" not in chat_model else 1024,
+                            include_thoughts=True if "pro" in chat_model else False,
+                        ) if "2.5" in chat_model else None
+                    ),
+                )
+
+                # Sometimes gemini creates a malformed function call on it's server, which causes a failure. Nothing we can do about it really.
+                # Refer to : https://discuss.ai.google.dev/t/malformed-function-call-finish-reason-happens-too-frequently-with-vertex-ai/93630
+                if ai_resp.candidates[0].finish_reason == types.FinishReason.MALFORMED_FUNCTION_CALL:
+                    if retry > 0:
+                        raise Exception(f"AI response was malformed, please retry : {str(ai_resp.candidates[0].finish_message)}")
+                    else:
+                        form.meta["retries"] = retry + 1
+                        return generate_response(retry + 1)
+                return ai_resp
+
+            ai_response = generate_response()
 
             if ai_response.candidates[0].finish_reason != types.FinishReason.STOP:
-                raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)}")
+                raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)} : {str(ai_response.candidates[0].finish_message)}")
 
             thinking = next((part for part in ai_response.candidates[0].content.parts if part.thought), None)
             form.meta["thinking"] = thinking.text if thinking else None

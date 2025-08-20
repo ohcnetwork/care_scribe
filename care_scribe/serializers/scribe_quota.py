@@ -1,13 +1,13 @@
 from rest_framework import serializers
 
 from care.facility.models.facility import Facility
-from care.users.api.serializers.user import FacilityBareMinimumSerializer
 from care.users.models import User
+from care_scribe.serializers.base import FacilitySerializer
 from care_scribe.models.scribe_quota import ScribeQuota
 from care_scribe.serializers.scribe import ScribeUserSerializer
 
 class ScribeQuotaSerializer(serializers.ModelSerializer):
-    facility = FacilityBareMinimumSerializer(read_only=True)
+    facility = FacilitySerializer(read_only=True)
     facility_external_id = serializers.CharField(write_only=True, required=False)
     user = ScribeUserSerializer(read_only=True)
     created_by = ScribeUserSerializer(read_only=True)

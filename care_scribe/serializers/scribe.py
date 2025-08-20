@@ -2,9 +2,9 @@ from rest_framework import serializers
 from care.facility.models.facility import Facility
 from care.emr.models.encounter import Encounter
 from care.emr.models.patient import Patient
-from care.users.models import User, UserFlag
+from care.users.models import User
+from care_scribe.care_scribe.serializers.base import FacilitySerializer
 from care_scribe.models.scribe import Scribe
-from care.users.api.serializers.user import FacilityBareMinimumSerializer
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.serializers.scribe_file import ScribeFileUploadUpdateSerializer
 
@@ -39,7 +39,7 @@ class ScribeSerializer(serializers.ModelSerializer):
 
     requested_in_facility_id = serializers.CharField(write_only=True, required=False)
     requested_in_encounter_id = serializers.CharField(write_only=True, required=False)
-    requested_in_facility = FacilityBareMinimumSerializer(read_only=True)
+    requested_in_facility = FacilitySerializer(read_only=True)
     requested_in_encounter = ScribeEncounterSerializer(read_only=True)
     requested_by = ScribeUserSerializer(read_only=True)
     processed_ai_response = serializers.JSONField(write_only=True, required=False)

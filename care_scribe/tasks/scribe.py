@@ -4,6 +4,7 @@ import json
 import logging
 import io
 import os
+import re
 import textwrap
 from time import perf_counter
 from celery import shared_task
@@ -378,6 +379,13 @@ def process_ai_form_fill(external_id):
                     )
                 except Exception as e:
                     logger.warning(f"Error creating cache: {e}")
+                    message = None
+                    match = re.search(r"'message': '([^']+)'", str(e))
+                    if match:
+                        message = match.group(1)
+
+                    if message and "constraint-is-too-big" in message:
+                        raise Exception("The form is too large for Scribe. Please try again with a smaller form.")
                     existing_cache = None
 
             will_use_cache = existing_cache and existing_cache.usage_metadata.total_token_count > 1024

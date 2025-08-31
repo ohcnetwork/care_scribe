@@ -4,6 +4,7 @@ import json
 import logging
 import io
 import os
+import re
 import textwrap
 from time import perf_counter
 from celery import shared_task
@@ -358,6 +359,13 @@ def process_ai_form_fill(external_id):
                     )
                 except Exception as e:
                     logger.warning(f"Error creating cache: {e}")
+                    message = None
+                    match = re.search(r"'message': '([^']+)'", str(e))
+                    if match:
+                        message = match.group(1)
+
+                    if message and "constraint-is-too-big" in message:
+                        raise Exception("The form is too large for Scribe. Please try again with a smaller form.")
                     existing_cache = None
 
             will_use_cache = existing_cache and existing_cache.usage_metadata.total_token_count > 1024
@@ -368,23 +376,36 @@ def process_ai_form_fill(external_id):
             else:
                 logger.info(f"Cache is not large enough, will not use it for this iteration")
 
-            ai_response = ai_client(api_provider).models.generate_content(
-                model=chat_model,
-                contents=messages,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    cached_content=existing_cache.name if will_use_cache else None,
-                    tool_config=tool_config if not will_use_cache else None,
-                    tools=tools if not will_use_cache else None,
-                    thinking_config=types.ThinkingConfig(
-                        thinking_budget=0 if "pro" not in chat_model else 1024,
-                        include_thoughts=True if "pro" in chat_model else False,
-                    ) if "2.5" in chat_model else None
-                ),
-            )
+            def generate_response(retry=0):
+                ai_resp = ai_client(api_provider).models.generate_content(
+                    model=chat_model,
+                    contents=messages,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        cached_content=existing_cache.name if will_use_cache else None,
+                        tool_config=tool_config if not will_use_cache else None,
+                        tools=tools if not will_use_cache else None,
+                        thinking_config=types.ThinkingConfig(
+                            thinking_budget=0 if "pro" not in chat_model else 1024,
+                            include_thoughts=True if "pro" in chat_model else False,
+                        ) if "2.5" in chat_model else None
+                    ),
+                )
+
+                # Sometimes gemini creates a malformed function call on it's server, which causes a failure. Nothing we can do about it really.
+                # Refer to : https://discuss.ai.google.dev/t/malformed-function-call-finish-reason-happens-too-frequently-with-vertex-ai/93630
+                if ai_resp.candidates[0].finish_reason == types.FinishReason.MALFORMED_FUNCTION_CALL:
+                    if retry > 0:
+                        raise Exception(f"AI response was malformed, please retry : {str(ai_resp.candidates[0].finish_message)}")
+                    else:
+                        form.meta["retries"] = retry + 1
+                        return generate_response(retry + 1)
+                return ai_resp
+
+            ai_response = generate_response()
 
             if ai_response.candidates[0].finish_reason != types.FinishReason.STOP:
-                raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)}")
+                raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)} : {str(ai_response.candidates[0].finish_message)}")
 
             thinking = next((part for part in ai_response.candidates[0].content.parts if part.thought), None)
             form.meta["thinking"] = thinking.text if thinking else None

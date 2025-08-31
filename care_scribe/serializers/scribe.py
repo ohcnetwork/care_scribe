@@ -2,8 +2,8 @@ from rest_framework import serializers
 from care.facility.models.facility import Facility
 from care.emr.models.encounter import Encounter
 from care.emr.models.patient import Patient
-from care.users.models import User, UserFlag
-from care_scribe.care_scribe.serializers.base import FacilitySerializer
+from care.users.models import User
+from care_scribe.serializers.base import FacilitySerializer
 from care_scribe.models.scribe import Scribe
 from care_scribe.models.scribe_file import ScribeFile
 from care_scribe.serializers.scribe_file import ScribeFileUploadUpdateSerializer

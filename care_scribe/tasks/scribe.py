@@ -174,7 +174,7 @@ def process_ai_form_fill(external_id):
 
     form.meta["provider"] = api_provider
     form.meta["chat_model"] = chat_model
-    form.meta["audio_model"] = audio_model
+    form.meta["audio_model"] = audio_model if api_provider != "google" else None
     form.meta["error"] = None
     form.meta["thinking"] = None
 

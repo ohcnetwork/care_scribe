@@ -177,6 +177,18 @@ def process_ai_form_fill(external_id):
     form.meta["audio_model"] = audio_model if api_provider != "google" else None
     form.meta["error"] = None
     form.meta["thinking"] = None
+    form.meta["completion_id"] = None
+    form.meta["completion_input_tokens"] = None
+    form.meta["completion_audio_input_tokens"] = None
+    form.meta["completion_image_input_tokens"] = None
+    form.meta["completion_text_input_tokens"] = None
+    form.meta["completion_cached_tokens"] = None
+    form.meta["completion_cached_audio_tokens"] = None
+    form.meta["completion_cached_image_tokens"] = None
+    form.meta["completion_cached_text_tokens"] = None
+    form.meta["completion_output_tokens"] = None
+    form.meta["completion_thinking_tokens"] = None
+    form.meta["completion_total_tokens"] = None
 
     audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
@@ -416,8 +428,16 @@ def process_ai_form_fill(external_id):
 
             form.meta["completion_id"] = ai_response.response_id
             form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
-            form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
+            form.meta["completion_audio_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.AUDIO])
+            form.meta["completion_image_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.IMAGE])
+            form.meta["completion_text_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.TEXT])
             form.meta["completion_cached_tokens"] = ai_response.usage_metadata.cached_content_token_count
+            form.meta["completion_cached_audio_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.AUDIO]) if ai_response.usage_metadata.cache_tokens_details else None
+            form.meta["completion_cached_image_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.IMAGE]) if ai_response.usage_metadata.cache_tokens_details else None
+            form.meta["completion_cached_text_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.TEXT]) if ai_response.usage_metadata.cache_tokens_details else None
+            form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
+            form.meta["completion_thinking_tokens"] = ai_response.usage_metadata.thoughts_token_count
+            form.meta["completion_total_tokens"] = ai_response.usage_metadata.total_token_count
             form.chat_input_tokens = ai_response.usage_metadata.prompt_token_count + ai_response.usage_metadata.cached_content_token_count if ai_response.usage_metadata.cached_content_token_count else 0
             form.chat_output_tokens = ai_response.usage_metadata.candidates_token_count
 

@@ -102,7 +102,10 @@ def process_ai_form_fill(external_id):
         2. Use readable terms for coded entries (e.g., convert “A32Q Brain Hemorrhage” to “Brain Hemorrhage”).
         3. If the encounter contains non-English content, translate it to English before processing.
         4. If the audio or image contains no relevant data, return an empty string for the transcription field, and do not assume any context or information.
-        5. You do not have to fill all fields. Only fill the fields that are relevant to the encounter. Let the rest have a null value.
+        5. Do not assume any fields. ONLY fill in what is mentioned in the audio/image.
+        6. In cases where the audio is silence or illegible, return an empty string for the transcription field.
+
+        {qn_and_group_descriptions}
 
         Notes Handling:
         - Populate the `note` field only if there is additional context that cannot be captured in the `value`.
@@ -194,10 +197,19 @@ def process_ai_form_fill(external_id):
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
 
     processed_fields = {}
+    qn_and_group_descriptions = ""
 
     def process_fields(fields: list, indent: int = 0):
+        nonlocal qn_and_group_descriptions
+
         for fd in fields:
             if "fields" in fd:
+                if "description" in fd and fd["description"] != "":
+                    qn_and_group_descriptions += textwrap.dedent(
+                        f"""
+                        {' ' * indent * 4}For questions under {fd['title']}: {fd['description']}
+                        """
+                    )
                 process_fields(fd["fields"], indent + 1)
             else:
                 schema = fd.get("schema", {})
@@ -205,7 +217,15 @@ def process_ai_form_fill(external_id):
                 processed_fields[field_id] = schema
 
     for qn in form.form_data:
+        if "description" in qn and qn["description"] != "":
+            qn_and_group_descriptions += textwrap.dedent(
+                f"""
+                For questions under {qn['title']}: {qn['description']}
+                """
+            )
         process_fields(qn["fields"])
+
+    base_prompt = base_prompt.replace("{qn_and_group_descriptions}", qn_and_group_descriptions)
 
     processed_fields_no_keys = {f"q{i}": v for i, (k, v) in enumerate(processed_fields.items())}
 

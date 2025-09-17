@@ -93,6 +93,10 @@ def process_ai_form_fill(external_id):
 
     form = Scribe.objects.get(external_id=external_id, status=Scribe.Status.READY)
 
+    processing = {
+        "created_date" : datetime.datetime.now().isoformat(),
+    }
+
     base_prompt = textwrap.dedent(
         """
         You will receive a patient's encounter in the form of text, audio, or image. Your task is to extract all relevant data and populate the specified form fields accordingly. Follow the instructions and rules meticulously to ensure accuracy and compliance.
@@ -150,7 +154,11 @@ def process_ai_form_fill(external_id):
             error = "OCR is not enabled for this user or facility."
 
         if error:
-            form.meta["error"] = error
+            processing["error"] = error
+            form.meta["processings"] = [
+                *form.meta.get("processing", []),
+                processing
+            ]
             form.status = Scribe.Status.FAILED
             form.save()
             return
@@ -172,23 +180,10 @@ def process_ai_form_fill(external_id):
     if form.chat_model_temperature is not None:
         temperature = form.chat_model_temperature
 
-    form.meta["provider"] = api_provider
-    form.meta["chat_model"] = chat_model
-    form.meta["audio_model"] = audio_model if api_provider != "google" else None
-    form.meta["error"] = None
-    form.meta["thinking"] = None
-    form.meta["completion_id"] = None
-    form.meta["completion_input_tokens"] = None
-    form.meta["completion_audio_input_tokens"] = None
-    form.meta["completion_image_input_tokens"] = None
-    form.meta["completion_text_input_tokens"] = None
-    form.meta["completion_cached_tokens"] = None
-    form.meta["completion_cached_audio_tokens"] = None
-    form.meta["completion_cached_image_tokens"] = None
-    form.meta["completion_cached_text_tokens"] = None
-    form.meta["completion_output_tokens"] = None
-    form.meta["completion_thinking_tokens"] = None
-    form.meta["completion_total_tokens"] = None
+    processing["provider"] = api_provider
+    processing["chat_model"] = chat_model
+    processing["audio_model"] = audio_model if api_provider != "google" else None
+    processing["form_data"] = form.form_data
 
     audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
@@ -234,8 +229,8 @@ def process_ai_form_fill(external_id):
 
     logger.info(f"=== Processing AI form fill {form.external_id} ===")
 
-    form.meta["function"] = output_schema
-    form.meta["prompt"] = base_prompt
+    processing["function"] = output_schema
+    processing["prompt"] = base_prompt
 
     messages = []
 
@@ -286,7 +281,11 @@ def process_ai_form_fill(external_id):
                         transcription = ai_client(api_provider).audio.translations.create(model=audio_model, file=buffer)
                     except Exception as e:
                         logger.error(f"Error generating transcript: {e}")
-                        form.meta["error"] = f"Error generating transcript: {e}"
+                        processing["error"] = f"Error generating transcript: {e}"
+                        form.meta["processing"] = [
+                            *form.meta.get("processing", []),
+                            processing
+                        ]
                         form.status = Scribe.Status.FAILED
                         form.save()
                         return
@@ -295,7 +294,7 @@ def process_ai_form_fill(external_id):
                     logger.info(f"Transcript: {transcript}")
 
                     transcription_time = perf_counter() - initiation_time
-                    form.meta["transcription_time"] = transcription_time
+                    processing["transcription_time"] = transcription_time
                     form.save()
 
                     # Save the transcript to the form
@@ -382,7 +381,7 @@ def process_ai_form_fill(external_id):
 
             will_use_cache = existing_cache and existing_cache.usage_metadata.total_token_count > 1024
             if will_use_cache:
-                form.meta["cache_name"] = existing_cache.name
+                processing["cache_name"] = existing_cache.name
                 logger.info(f"CACHED TOKEN COUNT: {existing_cache.usage_metadata.total_token_count}")
 
             else:
@@ -410,7 +409,7 @@ def process_ai_form_fill(external_id):
                     if retry > 0:
                         raise Exception(f"AI response was malformed, please retry : {str(ai_resp.candidates[0].finish_message)}")
                     else:
-                        form.meta["retries"] = retry + 1
+                        processing["retries"] = retry + 1
                         return generate_response(retry + 1)
                 return ai_resp
 
@@ -420,24 +419,24 @@ def process_ai_form_fill(external_id):
                 raise Exception(f"AI response did not finish successfully: {str(ai_response.candidates[0].finish_reason)} : {str(ai_response.candidates[0].finish_message)}")
 
             thinking = next((part for part in ai_response.candidates[0].content.parts if part.thought), None)
-            form.meta["thinking"] = thinking.text if thinking else None
+            processing["thinking"] = thinking.text if thinking else None
 
             ai_response_json = next(part.function_call.args for part in ai_response.candidates[0].content.parts if part.function_call)
 
             form.transcript = ai_response_json["__scribe__transcription"]
 
-            form.meta["completion_id"] = ai_response.response_id
-            form.meta["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
-            form.meta["completion_audio_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.AUDIO])
-            form.meta["completion_image_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.IMAGE])
-            form.meta["completion_text_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.TEXT])
-            form.meta["completion_cached_tokens"] = ai_response.usage_metadata.cached_content_token_count
-            form.meta["completion_cached_audio_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.AUDIO]) if ai_response.usage_metadata.cache_tokens_details else None
-            form.meta["completion_cached_image_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.IMAGE]) if ai_response.usage_metadata.cache_tokens_details else None
-            form.meta["completion_cached_text_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.TEXT]) if ai_response.usage_metadata.cache_tokens_details else None
-            form.meta["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
-            form.meta["completion_thinking_tokens"] = ai_response.usage_metadata.thoughts_token_count
-            form.meta["completion_total_tokens"] = ai_response.usage_metadata.total_token_count
+            processing["completion_id"] = ai_response.response_id
+            processing["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
+            processing["completion_audio_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.AUDIO])
+            processing["completion_image_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.IMAGE])
+            processing["completion_text_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.TEXT])
+            processing["completion_cached_tokens"] = ai_response.usage_metadata.cached_content_token_count
+            processing["completion_cached_audio_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.AUDIO]) if ai_response.usage_metadata.cache_tokens_details else None
+            processing["completion_cached_image_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.IMAGE]) if ai_response.usage_metadata.cache_tokens_details else None
+            processing["completion_cached_text_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.cache_tokens_details if detail.modality == types.MediaModality.TEXT]) if ai_response.usage_metadata.cache_tokens_details else None
+            processing["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
+            processing["completion_thinking_tokens"] = ai_response.usage_metadata.thoughts_token_count
+            processing["completion_total_tokens"] = ai_response.usage_metadata.total_token_count
             form.chat_input_tokens = ai_response.usage_metadata.prompt_token_count + ai_response.usage_metadata.cached_content_token_count if ai_response.usage_metadata.cached_content_token_count else 0
             form.chat_output_tokens = ai_response.usage_metadata.candidates_token_count
 
@@ -471,10 +470,10 @@ def process_ai_form_fill(external_id):
             if not form.transcript and not transcript:
                 form.transcript = ai_response_json["__scribe__transcription"]
 
-            form.meta["completion_id"] = ai_response.id
-            form.meta["completion_input_tokens"] = ai_response.usage.prompt_tokens
-            form.meta["completion_output_tokens"] = ai_response.usage.completion_tokens
-            form.meta["completion_cached_tokens"] = ai_response.usage.prompt_tokens_details.cached_tokens
+            processing["completion_id"] = ai_response.id
+            processing["completion_input_tokens"] = ai_response.usage.prompt_tokens
+            processing["completion_output_tokens"] = ai_response.usage.completion_tokens
+            processing["completion_cached_tokens"] = ai_response.usage.prompt_tokens_details.cached_tokens
             form.chat_input_tokens = ai_response.usage.prompt_tokens
             form.chat_output_tokens = ai_response.usage.completion_tokens
 
@@ -483,16 +482,26 @@ def process_ai_form_fill(external_id):
     except Exception as e:
         # Log the error or handle it as needed
         logger.error(f"AI form fill processing failed at line {e.__traceback__.tb_lineno}: {e}")
-        form.meta["error"] = str(e)
+        processing["error"] = str(e)
+        form.meta["processings"] = [
+            *form.meta.get("processing", []),
+            processing
+        ]
         form.status = Scribe.Status.FAILED
         form.save()
         return
 
-    form.meta["completion_time"] = perf_counter() - completion_start_time
-    form.status = Scribe.Status.COMPLETED
+    processing["completion_time"] = perf_counter() - completion_start_time
 
     # convert the keys back to the original field IDs
-    form.ai_response = {k: ai_response_json.get(f"q{i}") for i,(k, v) in enumerate(processed_fields.items()) if ai_response_json.get(f"q{i}") is not None}
+    converted_response = {k: ai_response_json.get(f"q{i}") for i,(k, v) in enumerate(processed_fields.items()) if ai_response_json.get(f"q{i}") is not None}
+    form.ai_response = converted_response
+    processing["ai_response"] = converted_response
+    form.meta["processings"] = [
+        *form.meta.get("processings", []),
+        processing
+    ]
+    form.status = Scribe.Status.COMPLETED
     form.save()
 
     # Update the user and facility quotas

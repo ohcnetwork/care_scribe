@@ -21,27 +21,36 @@ from care_scribe.utils import hash_string
 logger = logging.getLogger(__name__)
 
 
-def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
+_ai_client = None
+_client_provider = None
+
+def ai_client(provider=None):
+    global _ai_client, _client_provider
+
+    provider = provider or plugin_settings.SCRIBE_API_PROVIDER
+
+    if _ai_client is not None and _client_provider == provider:
+        return _ai_client
+
     if provider == "azure":
-        AiClient = AzureOpenAI(
+        _ai_client = AzureOpenAI(
             api_key=plugin_settings.SCRIBE_AZURE_API_KEY,
             api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
             azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT,
         )
+
     elif provider == "openai":
-        AiClient = OpenAI(
-            api_key=plugin_settings.SCRIBE_OPENAI_API_KEY,
-        )
+        _ai_client = OpenAI(api_key=plugin_settings.SCRIBE_OPENAI_API_KEY)
 
     elif provider == "google":
         credentials = None
         b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
-
         if b64_credentials:
             info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
-            credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
-
-        AiClient = genai.Client(
+            credentials = service_account.Credentials.from_service_account_info(
+                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        _ai_client = genai.Client(
             vertexai=True,
             project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
             location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
@@ -49,8 +58,10 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
         )
 
     else:
-        raise Exception("Invalid api provider")
-    return AiClient
+        raise ValueError(f"Invalid provider: {provider}")
+
+    _client_provider = provider
+    return _ai_client
 
 def chat_message(provider=plugin_settings.SCRIBE_API_PROVIDER, role="user", text=None, file_object=None, file_type="audio"):
     """ Generates a chat message compatible with the given AI provider client."""
@@ -427,7 +438,10 @@ def process_ai_form_fill(external_id):
 
             processing["completion_id"] = ai_response.response_id
             processing["completion_input_tokens"] = ai_response.usage_metadata.prompt_token_count
-            processing["completion_audio_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.AUDIO])
+            processing["completion_audio_input_tokens"] = sum(
+                [detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details
+                 if detail.modality == types.MediaModality.AUDIO and detail.token_count is not None]
+            )
             processing["completion_image_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.IMAGE])
             processing["completion_text_input_tokens"] = sum([detail.token_count for detail in ai_response.usage_metadata.prompt_tokens_details if detail.modality == types.MediaModality.TEXT])
             processing["completion_cached_tokens"] = ai_response.usage_metadata.cached_content_token_count

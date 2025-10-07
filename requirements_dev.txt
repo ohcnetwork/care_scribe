@@ -18,5 +18,5 @@ django-environ
 django-filter
 openai
 jsonschema
-google-genai==1.38.0
+google-genai
 jsonref

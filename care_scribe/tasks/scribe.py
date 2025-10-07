@@ -140,6 +140,10 @@ def process_ai_form_fill(external_id):
     form.meta["chat_model"] = chat_model
     form.meta["audio_model"] = audio_model
 
+    # Instantiate the AI client once to avoid premature closure and resource management issues,
+    # especially with the Google GenAI provider. Reuse this client instance throughout the function.
+    client = ai_client(api_provider)
+
     audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
 
@@ -280,7 +284,7 @@ def process_ai_form_fill(external_id):
                     else:
                         logger.info(f"=== Generating transcript for AI form fill {form.external_id} ===")
 
-                        transcription = ai_client(api_provider).audio.translations.create(model=audio_model, file=buffer)
+                        transcription = client.audio.translations.create(model=audio_model, file=buffer)
                         transcript += transcription.text
                         logger.info(f"Transcript: {transcript}")
 
@@ -344,7 +348,7 @@ def process_ai_form_fill(external_id):
             if api_provider == "google":
 
                 output_schema_hash = hash_string(json.dumps(output_schema, sort_keys=True))
-                cache_list = ai_client(api_provider).caches.list()
+                cache_list = client.caches.list()
 
                 try:
                     existing_cache =  next((cache for cache in cache_list if cache.display_name == f"scribe_{output_schema_hash}" and cache.model == chat_model), None)
@@ -355,7 +359,7 @@ def process_ai_form_fill(external_id):
                 if not existing_cache:
                     print(f"Creating new cache for scribe_{output_schema_hash}")
                     try:
-                        existing_cache = ai_client(api_provider).caches.create(
+                        existing_cache = client.caches.create(
                             model=chat_model,
                             config=types.CreateCachedContentConfig(
                                 display_name=f"scribe_{output_schema_hash}",
@@ -388,7 +392,7 @@ def process_ai_form_fill(external_id):
                 else:
                     print(f"Cache is not large enough, will not use it for this iteration")
 
-                ai_response = ai_client(api_provider).models.generate_content(
+                ai_response = client.models.generate_content(
                     model=chat_model,
                     contents=messages,
                     config=types.GenerateContentConfig(
@@ -444,7 +448,7 @@ def process_ai_form_fill(external_id):
 
                 messages.append({"role": "user", "content": user_contents})
 
-                ai_response = ai_client(api_provider).chat.completions.create(
+                ai_response = client.chat.completions.create(
                     model=chat_model,
                     temperature=temperature,
                     messages=messages,

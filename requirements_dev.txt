@@ -6,3 +6,16 @@ coverage
 Sphinx
 twine
 black
+
+
+# dependencies for the project
+
+requests
+celery
+django
+djangorestframework
+django-environ
+django-filter
+jsonschema
+openai==2.2.0
+google-genai==1.41.0

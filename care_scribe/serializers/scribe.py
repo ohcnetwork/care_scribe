@@ -107,7 +107,16 @@ class ScribeSerializer(serializers.ModelSerializer):
         if encounter_id:
             self.validated_data["requested_in_encounter"] = Encounter.objects.filter(external_id=encounter_id).first()
         if processed_ai_response:
-            self.validated_data["meta"] = {**self.instance.meta, "processed_ai_response": processed_ai_response}
+            # update the latest processing entry with the processed_ai_response
+            latest_processing = self.instance.meta.get("processings", [])[-1] if self.instance and self.instance.meta.get("processings", []) else {}
+            latest_processing["processed_ai_response"] = processed_ai_response
+            # update meta with the updated processings list
+            self.validated_data["meta"] = {
+                **self.instance.meta,
+                "processings": [
+                    *(self.instance.meta.get("processings", [])[:-1] if self.instance and self.instance.meta.get("processings", []) else []),
+                    latest_processing
+                ]} if self.instance else {"processings": [latest_processing]}
 
         if benchmark:
             if user.is_superuser:

@@ -73,6 +73,10 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
 
 class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="external_id", read_only=True)
+    length = serializers.SerializerMethodField()
+
+    def get_length(self, obj):
+        return obj.meta.get("length", 0)
 
     class Meta:
         model = ScribeFile
@@ -80,5 +84,6 @@ class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "upload_completed",
-            "read_signed_url"
+            "read_signed_url",
+            "length"
         )

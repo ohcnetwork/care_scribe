@@ -1,7 +1,6 @@
 from rest_framework import serializers
 
 from care.facility.models.facility import Facility
-from care.users.models import User
 from care_scribe.serializers.base import FacilitySerializer
 from care_scribe.models.scribe_quota import ScribeQuota
 from care_scribe.serializers.scribe import ScribeUserSerializer

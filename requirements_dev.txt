@@ -16,7 +16,6 @@ django
 djangorestframework
 django-environ
 django-filter
-openai
 jsonschema
-google-genai
-jsonref
+openai==2.2.0
+google-genai==1.41.0

@@ -20,37 +20,27 @@ from care_scribe.utils import hash_string
 
 logger = logging.getLogger(__name__)
 
-
-_ai_client = None
-_client_provider = None
-
-def ai_client(provider=None):
-    global _ai_client, _client_provider
-
-    provider = provider or plugin_settings.SCRIBE_API_PROVIDER
-
-    if _ai_client is not None and _client_provider == provider:
-        return _ai_client
-
+def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
     if provider == "azure":
-        _ai_client = AzureOpenAI(
+        AiClient = AzureOpenAI(
             api_key=plugin_settings.SCRIBE_AZURE_API_KEY,
             api_version=plugin_settings.SCRIBE_AZURE_API_VERSION,
             azure_endpoint=plugin_settings.SCRIBE_AZURE_ENDPOINT,
         )
-
     elif provider == "openai":
-        _ai_client = OpenAI(api_key=plugin_settings.SCRIBE_OPENAI_API_KEY)
+        AiClient = OpenAI(
+            api_key=plugin_settings.SCRIBE_OPENAI_API_KEY,
+        )
 
     elif provider == "google":
         credentials = None
         b64_credentials = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_B64")
+
         if b64_credentials:
             info = json.loads(base64.b64decode(b64_credentials).decode("utf-8"))
-            credentials = service_account.Credentials.from_service_account_info(
-                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-        _ai_client = genai.Client(
+            credentials = service_account.Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/cloud-platform"])
+
+        AiClient = genai.Client(
             vertexai=True,
             project=plugin_settings.SCRIBE_GOOGLE_PROJECT_ID,
             location=plugin_settings.SCRIBE_GOOGLE_LOCATION,
@@ -58,10 +48,8 @@ def ai_client(provider=None):
         )
 
     else:
-        raise ValueError(f"Invalid provider: {provider}")
-
-    _client_provider = provider
-    return _ai_client
+        raise Exception("Invalid api provider")
+    return AiClient
 
 def chat_message(provider=plugin_settings.SCRIBE_API_PROVIDER, role="user", text=None, file_object=None, file_type="audio"):
     """ Generates a chat message compatible with the given AI provider client."""
@@ -196,6 +184,10 @@ def process_ai_form_fill(external_id):
     processing["audio_model"] = audio_model if api_provider != "google" else None
     processing["form_data"] = form.form_data
 
+    # Instantiate the AI client once to avoid premature closure and resource management issues,
+    # especially with the Google GenAI provider. Reuse this client instance throughout the function.
+    client = ai_client(api_provider)
+
     audio_files = ScribeFile.objects.filter(external_id__in=form.audio_file_ids)
     total_audio_duration = sum(file.meta.get("length", 0) for file in audio_files)
 
@@ -289,7 +281,7 @@ def process_ai_form_fill(external_id):
                     buffer.name = "file." + format
                     logger.info(f"=== Generating transcript for AI form fill {form.external_id} ===")
                     try:
-                        transcription = ai_client(api_provider).audio.translations.create(model=audio_model, file=buffer)
+                        transcription = client.audio.translations.create(model=audio_model, file=buffer)
                     except Exception as e:
                         logger.error(f"Error generating transcript: {e}")
                         processing["error"] = f"Error generating transcript: {e}"
@@ -345,7 +337,7 @@ def process_ai_form_fill(external_id):
 
             output_schema_hash = hash_string(json.dumps(output_schema, sort_keys=True))
             try:
-                cache_list = list(ai_client(api_provider).caches.list())
+                cache_list = list(client.caches.list())
                 existing_cache = next((cache for cache in cache_list if cache.display_name == f"scribe_{output_schema_hash}" and cache.model.split("/")[-1] == chat_model), None)
             except Exception as e:
                 logger.error(f"Error fetching cache: {e}")
@@ -370,7 +362,7 @@ def process_ai_form_fill(external_id):
             if not existing_cache:
                 logger.info(f"=== Creating new cache for scribe_{output_schema_hash} ===")
                 try:
-                    existing_cache = ai_client(api_provider).caches.create(
+                    existing_cache = client.caches.create(
                         model=chat_model,
                         config=types.CreateCachedContentConfig(
                             display_name=f"scribe_{output_schema_hash}",
@@ -399,7 +391,7 @@ def process_ai_form_fill(external_id):
                 logger.info(f"Cache is not large enough, will not use it for this iteration")
 
             def generate_response(retry=0):
-                ai_resp = ai_client(api_provider).models.generate_content(
+                ai_resp = client.models.generate_content(
                     model=chat_model,
                     contents=messages,
                     config=types.GenerateContentConfig(
@@ -456,7 +448,7 @@ def process_ai_form_fill(external_id):
 
         else:
 
-            ai_response = ai_client(api_provider).chat.completions.create(
+            ai_response = client.chat.completions.create(
                 model=chat_model,
                 temperature=temperature,
                 messages=messages,

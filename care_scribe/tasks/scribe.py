@@ -129,6 +129,12 @@ def process_ai_form_fill(external_id):
         user_quota = form.requested_by.scribe_quota.filter(facility=form.requested_in_facility).first()
         facility_quota = form.requested_in_facility.scribe_quota.filter(user=None).first()
 
+        # recalculate used quota. This prevents edge cases where quota was exceeded last month and this is the first request this month
+        if facility_quota:
+            facility_quota.calculate_used()
+        if user_quota:
+            user_quota.calculate_used()
+
         error = None
 
         if not facility_quota:
@@ -155,7 +161,7 @@ def process_ai_form_fill(external_id):
         if error:
             processing["error"] = error
             form.meta["processings"] = [
-                *form.meta.get("processing", []),
+                *form.meta.get("processings", []),
                 processing
             ]
             form.status = Scribe.Status.FAILED
@@ -285,8 +291,8 @@ def process_ai_form_fill(external_id):
                     except Exception as e:
                         logger.error(f"Error generating transcript: {e}")
                         processing["error"] = f"Error generating transcript: {e}"
-                        form.meta["processing"] = [
-                            *form.meta.get("processing", []),
+                        form.meta["processings"] = [
+                            *form.meta.get("processings", []),
                             processing
                         ]
                         form.status = Scribe.Status.FAILED
@@ -443,7 +449,7 @@ def process_ai_form_fill(external_id):
             processing["completion_output_tokens"] = ai_response.usage_metadata.candidates_token_count
             processing["completion_thinking_tokens"] = ai_response.usage_metadata.thoughts_token_count
             processing["completion_total_tokens"] = ai_response.usage_metadata.total_token_count
-            form.chat_input_tokens = ai_response.usage_metadata.prompt_token_count + ai_response.usage_metadata.cached_content_token_count if ai_response.usage_metadata.cached_content_token_count else 0
+            form.chat_input_tokens = ai_response.usage_metadata.prompt_token_count + (ai_response.usage_metadata.cached_content_token_count if ai_response.usage_metadata.cached_content_token_count else 0)
             form.chat_output_tokens = ai_response.usage_metadata.candidates_token_count
 
         else:
@@ -490,7 +496,7 @@ def process_ai_form_fill(external_id):
         logger.error(f"AI form fill processing failed at line {e.__traceback__.tb_lineno}: {e}")
         processing["error"] = str(e)
         form.meta["processings"] = [
-            *form.meta.get("processing", []),
+            *form.meta.get("processings", []),
             processing
         ]
         form.status = Scribe.Status.FAILED

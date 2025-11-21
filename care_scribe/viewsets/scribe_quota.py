@@ -19,12 +19,10 @@ from rest_framework.response import Response
 from django_filters import rest_framework as filters
 from care_scribe.settings import plugin_settings
 from care_scribe.utils import hash_string
-import logging
 from care.facility.models.facility import Facility
 from care.emr.models.organization import FacilityOrganizationUser
 from django.utils import timezone
 
-logger = logging.getLogger(__name__)
 class ScribeQuotaFilter(filters.FilterSet):
 
     facility = filters.CharFilter(

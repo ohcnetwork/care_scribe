@@ -19,17 +19,24 @@ from rest_framework.response import Response
 from django_filters import rest_framework as filters
 from care_scribe.settings import plugin_settings
 from care_scribe.utils import hash_string
-
+import logging
 from care.facility.models.facility import Facility
 from care.emr.models.organization import FacilityOrganizationUser
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
 class ScribeQuotaFilter(filters.FilterSet):
 
     facility = filters.CharFilter(
         field_name="facility__name",
         lookup_expr="icontains",
         label="Facility Name",
+    )
+
+    username = filters.CharFilter(
+        field_name="user__username",
+        lookup_expr="icontains",
+        label="Username",
     )
 
 
@@ -41,7 +48,7 @@ class ScribeQuotaViewSet(
     GenericViewSet,
     DestroyModelMixin
 ):
-    queryset = ScribeQuota.objects.filter(user=None)
+    queryset = ScribeQuota.objects.all()
     serializer_class = ScribeQuotaSerializer
     lookup_field = "external_id"
     permission_classes = [IsAdminUser]
@@ -51,6 +58,20 @@ class ScribeQuotaViewSet(
     ]
     filterset_class = ScribeQuotaFilter
     pagination_class = LimitOffsetPagination
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        facility_id = self.request.query_params.get("facility_id", None)
+
+        if facility_id:
+            # If facility_id is provided, return only quotas with linked users under that facility
+
+            queryset = queryset.exclude(user=None).filter(facility__external_id=facility_id)
+        else:
+            # If no facility_id, return only quotas without linked users (facility-level quotas)
+            queryset = queryset.filter(user=None)
+
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)

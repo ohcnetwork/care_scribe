@@ -88,3 +88,10 @@ class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
             "read_signed_url",
             "length"
         )
+        read_only_fields = (
+            "id",
+            "name",
+            "internal_name",
+            "read_signed_url",
+            "length"
+        )

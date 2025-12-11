@@ -54,7 +54,7 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
 def chat_message(provider=plugin_settings.SCRIBE_API_PROVIDER, role="user", text=None, file_object=None, file_type="audio"):
     """ Generates a chat message compatible with the given AI provider client."""
     if file_object:
-        _, file_data = file_object.file_contents()
+        _, file_data = file_object.files_manager.file_contents(file_object)
         format = file_object.internal_name.split(".")[-1]
         buffer = io.BytesIO(file_data)
         buffer.name = "file." + format
@@ -281,7 +281,7 @@ def process_ai_form_fill(external_id):
                     )
 
                 else:
-                    _, audio_file_data = audio_file_object.file_contents()
+                    _, audio_file_data = audio_file_object.files_manager.file_contents(audio_file_object)
                     format = audio_file_object.internal_name.split(".")[-1]
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file." + format
@@ -453,12 +453,10 @@ def process_ai_form_fill(external_id):
             form.chat_output_tokens = ai_response.usage_metadata.candidates_token_count
 
         else:
-            # These models do not support setting a temperature
-            no_temp_models = ["gpt-5", "gpt-5-mini", "gpt-5-nano"]
 
             ai_response = client.chat.completions.create(
                 model=chat_model,
-                temperature=temperature if chat_model not in no_temp_models else None,
+                temperature=temperature,
                 messages=messages,
                 response_format={
                     "type" : "json_schema",

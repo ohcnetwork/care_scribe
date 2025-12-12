@@ -1,11 +1,14 @@
-from care import facility
-from care.utils.models.base import BaseModel
-from care.facility.models.facility import Facility
+from datetime import datetime
+
 from django.contrib.auth import get_user_model
-from django.db import models
-from django.utils import timezone
 from django.core.exceptions import ValidationError
-from django.db.models import Sum, F, ExpressionWrapper, IntegerField
+from django.db import models
+from django.db.models import ExpressionWrapper, F, IntegerField, Sum
+from django.utils import timezone
+
+from care.facility.models.facility import Facility
+from care.utils.models.base import BaseModel
+
 User = get_user_model()
 
 start_of_month = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -27,6 +30,10 @@ class ScribeQuota(BaseModel):
     class Meta:
         verbose_name = "Scribe Quota"
         verbose_name_plural = "Scribe Quotas"
+
+    @property
+    def last_modified_date(self) -> datetime:
+        return self.modified_date or self.created_date or datetime.min
 
     def clean(self):
         super().clean()

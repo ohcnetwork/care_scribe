@@ -1,5 +1,6 @@
 from typing import Any
 
+from care_scribe.utils import hash_string
 import environ
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -148,6 +149,8 @@ DEFAULTS = {
 plugin_settings = PluginSettings(
     PLUGIN_NAME, defaults=DEFAULTS, required_settings=REQUIRED_SETTINGS
 )
+
+plugin_settings.tnc_hash = hash_string(plugin_settings.SCRIBE_TNC)
 
 
 @receiver(setting_changed)

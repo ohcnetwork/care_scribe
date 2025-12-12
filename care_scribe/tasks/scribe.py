@@ -48,9 +48,7 @@ BASE_PROMPT = textwrap.dedent(
 
 
 class ScribeError(Exception):
-    def __init__(self, message, processing_context=None):
-        super().__init__(message)
-        self.processing_context = processing_context
+    pass
 
 
 def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
@@ -148,8 +146,7 @@ def process_ai_form_fill(external_id):
 
         if not form.audio_file_ids and not form.document_file_ids:
             raise ScribeError(
-                "No audio or documents associated with the Scribe. Your upload might have failed.",
-                processing_context=processing,
+                "No audio or documents associated with the Scribe. Your upload might have failed."
             )
 
         # Verify if the user/facility has not exceeded their quota and has accepted the terms and conditions
@@ -166,23 +163,20 @@ def process_ai_form_fill(external_id):
 
             if not facility_quota:
                 raise ScribeError(
-                    "Facility does not have a scribe quota.",
-                    processing_context=processing,
+                    "Facility does not have a scribe quota."
                 )
 
             if not user_quota:
-                raise ScribeError("User does not have a scribe quota.", processing_context=processing)
+                raise ScribeError("User does not have a scribe quota.")
 
             if user_quota.tnc_hash != plugin_settings.tnc_hash:
                 raise ScribeError(
-                    "User has not accepted the latest terms and conditions.",
-                    processing_context=processing,
+                    "User has not accepted the latest terms and conditions."
                 )
 
             if not facility_quota.allow_ocr and not user_quota.allow_ocr and len(form.document_file_ids) > 0:
                 raise ScribeError(
-                    "OCR is not enabled for this user or facility.",
-                    processing_context=processing,
+                    "OCR is not enabled for this user or facility."
                 )
 
             # Recalculate used quota. This prevents edge cases where quota
@@ -201,14 +195,12 @@ def process_ai_form_fill(external_id):
 
             if facility_quota.used >= facility_quota.tokens:
                 raise ScribeError(
-                    "Facility has exceeded its scribe quota.",
-                    processing_context=processing,
+                    "Facility has exceeded its scribe quota."
                 )
 
             if user_quota.used >= facility_quota.tokens_per_user:
                 raise ScribeError(
-                    "User has exceeded their scribe quota.",
-                    processing_context=processing,
+                    "User has exceeded their scribe quota."
                 )
 
         api_provider = plugin_settings.SCRIBE_API_PROVIDER

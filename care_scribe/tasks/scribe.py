@@ -199,10 +199,10 @@ def process_ai_form_fill(external_id):
         if form.chat_model:
             try:
                 api_provider, chat_model = form.chat_model.split("/")
-                if api_provider == "openai" and plugin_settings.SCRIBE_AZURE_API_KEY != "":
+                if api_provider == "openai" and plugin_settings.SCRIBE_AZURE_API_KEY:
                     api_provider = "azure"
-            except ValueError:
-                raise ScribeError("Invalid chat model format. Use 'provider/model_name'.")
+            except ValueError as e:
+                raise ScribeError("Invalid chat model format. Use 'provider/model_name'.") from e
 
         if form.audio_model:
             audio_model = form.audio_model
@@ -377,25 +377,24 @@ def process_ai_form_fill(external_id):
             )
 
             cached_content = None
+            cache_name = f"scribe_{chat_model.replace("/", "_")}_{output_schema_hash}"
             try:
                 logger.info(
-                    f"Scribe[{form.external_id}] status: fetching cache for scribe_{chat_model}_{output_schema_hash}"
+                    f"Scribe[{form.external_id}] status: fetching cache for {cache_name}"
                 )
-                cached_content = client.caches.get(name=f"scribe_{chat_model}_{output_schema_hash}")
-                if not cached_content:
-                    raise Exception("Cache not found")
+                cached_content = client.caches.get(name=cache_name)
             except Exception as e:
                 logger.error(f"Scribe[{form.external_id}] error fetching cache: {e}")
 
             if not cached_content:
                 logger.info(
-                    f"Scribe[{form.external_id}] status: creating new cache for scribe_{chat_model}_{output_schema_hash}"
+                    f"Scribe[{form.external_id}] status: creating new cache for {cache_name}"
                 )
                 try:
                     cached_content = client.caches.create(
                         model=chat_model,
                         config=types.CreateCachedContentConfig(
-                            display_name=f"scribe_{chat_model}_{output_schema_hash}",
+                            display_name=cache_name,
                             tools=tools,
                             tool_config=tool_config,
                             ttl="86400s",
@@ -466,9 +465,13 @@ def process_ai_form_fill(external_id):
             )
             processing["thinking"] = thinking.text if thinking else None
 
-            ai_response_json = next(
-                part.function_call.args for part in ai_response.candidates[0].content.parts if part.function_call
+            function_call_part = next(
+                (part for part in ai_response.candidates[0].content.parts if part.function_call),
+                None,
             )
+            if not function_call_part:
+                raise ScribeError("AI response did not contain a function call")
+            ai_response_json = function_call_part.function_call.args
 
             form.transcript = ai_response_json["__scribe__transcription"]
 
@@ -582,7 +585,7 @@ def process_ai_form_fill(external_id):
         # convert the keys back to the original field IDs
         converted_response = {
             k: ai_response_json.get(f"q{i}")
-            for i, k in enumerate(processed_fields.keys())
+            for i, k in enumerate(processed_fields)
             if ai_response_json.get(f"q{i}") is not None
         }
         form.ai_response = converted_response
@@ -601,7 +604,7 @@ def process_ai_form_fill(external_id):
     except Exception as e:
         logger.error(f"Scribe[{form.external_id}] status: error occurred while processing form: {e}")
 
-        if settings.SENTRY_DSN:
+        if getattr(settings, "SENTRY_DSN", None):
             import sentry_sdk
 
             sentry_sdk.capture_exception(e)

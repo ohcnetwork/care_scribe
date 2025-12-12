@@ -117,6 +117,8 @@ class PluginSettings:  # pragma: no cover
                         f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                     )
 
+        self.tnc_hash = hash_string(getattr(self, "SCRIBE_TNC"))
+
     def reload(self) -> None:
         """
         Deletes the cached attributes so they will be recomputed next time they are accessed.
@@ -149,8 +151,6 @@ DEFAULTS = {
 plugin_settings = PluginSettings(
     PLUGIN_NAME, defaults=DEFAULTS, required_settings=REQUIRED_SETTINGS
 )
-
-plugin_settings.tnc_hash = hash_string(plugin_settings.SCRIBE_TNC)
 
 
 @receiver(setting_changed)

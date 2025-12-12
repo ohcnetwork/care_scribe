@@ -145,9 +145,7 @@ def process_ai_form_fill(external_id):
         base_prompt = base_prompt.replace("{current_date_time}", current_time.isoformat())
 
         if not form.audio_file_ids and not form.document_file_ids:
-            raise ScribeError(
-                "No audio or documents associated with the Scribe. Your upload might have failed."
-            )
+            raise ScribeError("No audio or documents associated with the Scribe. Your upload might have failed.")
 
         # Verify if the user/facility has not exceeded their quota and has accepted the terms and conditions
         user_quota = None
@@ -162,22 +160,16 @@ def process_ai_form_fill(external_id):
             facility_quota: ScribeQuota | None = form.requested_in_facility.scribe_quota.filter(user=None).first()
 
             if not facility_quota:
-                raise ScribeError(
-                    "Facility does not have a scribe quota."
-                )
+                raise ScribeError("Facility does not have a scribe quota.")
 
             if not user_quota:
                 raise ScribeError("User does not have a scribe quota.")
 
             if user_quota.tnc_hash != plugin_settings.tnc_hash:
-                raise ScribeError(
-                    "User has not accepted the latest terms and conditions."
-                )
+                raise ScribeError("User has not accepted the latest terms and conditions.")
 
             if not facility_quota.allow_ocr and not user_quota.allow_ocr and len(form.document_file_ids) > 0:
-                raise ScribeError(
-                    "OCR is not enabled for this user or facility."
-                )
+                raise ScribeError("OCR is not enabled for this user or facility.")
 
             # Recalculate used quota. This prevents edge cases where quota
             # was exceeded last month and this is the first request this month
@@ -194,14 +186,10 @@ def process_ai_form_fill(external_id):
                 user_quota.calculate_used()
 
             if facility_quota.used >= facility_quota.tokens:
-                raise ScribeError(
-                    "Facility has exceeded its scribe quota."
-                )
+                raise ScribeError("Facility has exceeded its scribe quota.")
 
             if user_quota.used >= facility_quota.tokens_per_user:
-                raise ScribeError(
-                    "User has exceeded their scribe quota."
-                )
+                raise ScribeError("User has exceeded their scribe quota.")
 
         api_provider = plugin_settings.SCRIBE_API_PROVIDER
         chat_model = plugin_settings.SCRIBE_CHAT_MODEL_NAME

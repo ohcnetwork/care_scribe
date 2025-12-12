@@ -54,7 +54,7 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
 def chat_message(provider=plugin_settings.SCRIBE_API_PROVIDER, role="user", text=None, file_object=None, file_type="audio"):
     """ Generates a chat message compatible with the given AI provider client."""
     if file_object:
-        _, file_data = file_object.file_contents()
+        _, file_data = file_object.files_manager.file_contents(file_object)
         format = file_object.internal_name.split(".")[-1]
         buffer = io.BytesIO(file_data)
         buffer.name = "file." + format
@@ -281,7 +281,7 @@ def process_ai_form_fill(external_id):
                     )
 
                 else:
-                    _, audio_file_data = audio_file_object.file_contents()
+                    _, audio_file_data = audio_file_object.files_manager.file_contents(audio_file_object)
                     format = audio_file_object.internal_name.split(".")[-1]
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file." + format

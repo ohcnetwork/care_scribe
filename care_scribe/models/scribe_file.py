@@ -51,3 +51,6 @@ class ScribeFile(BaseModel):
                 internal_name = f"{internal_name}{extension}"
             self.internal_name = internal_name
         return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"ScribeFile {self.external_id} - {self.name} - Scribe ID {self.associating_id}"

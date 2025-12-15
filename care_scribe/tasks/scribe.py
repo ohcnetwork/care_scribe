@@ -435,7 +435,7 @@ def process_ai_form_fill(external_id):
                             else None,
                         ),
                     )
-                    processing["ai_response_raw"] = ai_resp.model_dump()
+                    processing["ai_response_raw"] = ai_resp.model_dump(mode="json", exclude_defaults=True)
                 except Exception as e:
                     raise ScribeError("Error while calling AI model") from e
 
@@ -559,7 +559,7 @@ def process_ai_form_fill(external_id):
                         },
                     },
                 )
-                processing["ai_response_raw"] = ai_response.model_dump()
+                processing["ai_response_raw"] = ai_response.model_dump(mode="json", exclude_defaults=True)
             except Exception as e:
                 raise ScribeError("Error while calling AI model") from e
 
@@ -602,7 +602,7 @@ def process_ai_form_fill(external_id):
             facility_quota.calculate_used()
 
     except Exception as e:
-        logger.error(f"Scribe[{form.external_id}] status: error occurred while processing form: {e}")
+        logger.error(f"Scribe[{form.external_id}] status: error occurred while processing form at line {e.__traceback__.tb_lineno}: {e}")
 
         if getattr(settings, "SENTRY_DSN", None):
             import sentry_sdk

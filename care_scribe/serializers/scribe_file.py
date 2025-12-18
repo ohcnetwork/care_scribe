@@ -16,15 +16,11 @@ def check_permissions(file_type, associating_id, user):
 class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="external_id", read_only=True)
     file_type = serializers.ChoiceField(choices=ScribeFile.FileType.choices)
-    file_category = serializers.ChoiceField(
-        choices=ScribeFile.FileCategory.choices, required=False
-    )
 
     signed_url = serializers.CharField(read_only=True)
     associating_id = serializers.CharField(write_only=True)
     internal_name = serializers.CharField(read_only=True)
     original_name = serializers.CharField(write_only=True)
-    mime_type = serializers.CharField(write_only=True)
     length = serializers.DecimalField(write_only=True, required=False, max_digits=20, decimal_places=2)
 
     class Meta:
@@ -32,7 +28,6 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "file_type",
-            "file_category",
             "name",
             "associating_id",
             "signed_url",
@@ -53,7 +48,7 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         user = self.context["request"].user
-        mime_type = validated_data.pop("mime_type")
+        mime_type = validated_data.get("mime_type")
 
         if mime_type not in settings.ALLOWED_MIME_TYPES:
             raise ValidationError({"detail": "Invalid File Type"})
@@ -66,7 +61,7 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
         validated_data["internal_name"] = validated_data["original_name"]
         del validated_data["original_name"]
         file_upload: ScribeFile = super().create(validated_data)
-        file_upload.signed_url = file_upload.signed_url(mime_type=mime_type)
+        file_upload.signed_url = file_upload.files_manager.signed_url(file_upload, mime_type=mime_type)
 
         return file_upload
 
@@ -74,9 +69,13 @@ class ScribeFileUploadCreateSerializer(serializers.ModelSerializer):
 class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="external_id", read_only=True)
     length = serializers.SerializerMethodField()
+    read_signed_url = serializers.SerializerMethodField()
 
     def get_length(self, obj):
         return obj.meta.get("length", 0)
+
+    def get_read_signed_url(self, obj):
+        return obj.files_manager.read_signed_url(obj)
 
     class Meta:
         model = ScribeFile
@@ -84,6 +83,16 @@ class ScribeFileUploadUpdateSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "upload_completed",
+            "internal_name",
             "read_signed_url",
+            "mime_type",
+            "length"
+        )
+        read_only_fields = (
+            "id",
+            "name",
+            "internal_name",
+            "read_signed_url",
+            "mime_type",
             "length"
         )

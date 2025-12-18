@@ -54,7 +54,7 @@ def ai_client(provider=plugin_settings.SCRIBE_API_PROVIDER):
 def chat_message(provider=plugin_settings.SCRIBE_API_PROVIDER, role="user", text=None, file_object=None, file_type="audio"):
     """ Generates a chat message compatible with the given AI provider client."""
     if file_object:
-        _, file_data = file_object.file_contents()
+        _, file_data = file_object.files_manager.file_contents(file_object)
         format = file_object.internal_name.split(".")[-1]
         buffer = io.BytesIO(file_data)
         buffer.name = "file." + format
@@ -125,6 +125,17 @@ def process_ai_form_fill(external_id):
     # Verify if the user/facility has not exceeded their quota and has accepted the terms and conditions
     user_quota = None
     facility_quota = None
+
+    if not form.audio_file_ids and not form.document_file_ids:
+        processing["error"] = "No audio or documents associated with the Scribe. Your upload might have failed."
+        form.meta["processings"] = [
+            *form.meta.get("processings", []),
+            processing
+        ]
+        form.status = Scribe.Status.FAILED
+        form.save()
+        return
+
     if not is_benchmark:
         user_quota = form.requested_by.scribe_quota.filter(facility=form.requested_in_facility).first()
         facility_quota = form.requested_in_facility.scribe_quota.filter(user=None).first()
@@ -281,7 +292,7 @@ def process_ai_form_fill(external_id):
                     )
 
                 else:
-                    _, audio_file_data = audio_file_object.file_contents()
+                    _, audio_file_data = audio_file_object.files_manager.file_contents(audio_file_object)
                     format = audio_file_object.internal_name.split(".")[-1]
                     buffer = io.BytesIO(audio_file_data)
                     buffer.name = "file." + format

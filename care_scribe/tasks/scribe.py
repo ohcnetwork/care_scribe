@@ -542,9 +542,12 @@ def process_ai_form_fill(external_id):
 
         else:
             try:
+                # These models do not support setting a temperature
+                no_temp_models = ["gpt-5", "gpt-5-mini", "gpt-5-nano"]
+
                 ai_response = client.chat.completions.create(
                     model=chat_model,
-                    temperature=temperature,
+                    temperature=temperature if chat_model not in no_temp_models else None,
                     messages=messages,
                     response_format={
                         "type": "json_schema",

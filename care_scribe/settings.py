@@ -1,5 +1,6 @@
 from typing import Any
 
+from care_scribe.utils import hash_string
 import environ
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -115,6 +116,8 @@ class PluginSettings:  # pragma: no cover
                         f'The "{setting}" setting is required when using Google API. '
                         f'Please set the "{setting}" in the environment or the {PLUGIN_NAME} plugin config.'
                     )
+
+        self.tnc_hash = hash_string(getattr(self, "SCRIBE_TNC"))
 
     def reload(self) -> None:
         """
